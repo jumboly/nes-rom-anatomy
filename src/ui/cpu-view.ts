@@ -11,7 +11,7 @@ import {
 } from '../nes/cpu-map.ts';
 import { disasmMapping } from '../nes/disasm.ts';
 import { findRegion, type NesRom } from '../nes/rom.ts';
-import { cpuText, el, formatSize, hex } from './format.ts';
+import { addrText, el, formatSize, hex } from './format.ts';
 import type { Navigator } from './nav.ts';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -187,7 +187,7 @@ function createLookup(rom: NesRom, getMapping: () => PrgMapping | null, nav: Nav
   };
   const label = (m: PrgMapping | null, cpu: number) => {
     const sw = m?.bankSwitch;
-    return cpuText(cpu, sw && cpu >= sw.cpuStart && cpu < sw.cpuStart + sw.size ? sw.bank : undefined);
+    return addrText(cpu, sw && cpu >= sw.cpuStart && cpu < sw.cpuStart + sw.size ? sw.bank : undefined);
   };
 
   /** 逆アセンブル表示と同じ対応で読める場合だけリンクを出す（UxROM 以外の bank 切り替えでは固定 bank の範囲だけ） */

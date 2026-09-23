@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { decodePatternTable, locateTile } from './chr.ts';
 import { prgMapping, prgToCpu, readCpu } from './cpu-map.ts';
+import { chrMapping, readPpu } from './ppu-map.ts';
 import { disasmMapping, disassemble, vectorLabels } from './disasm.ts';
 import { parseRom, type NesRom } from './rom.ts';
 import { readVectors } from './vectors.ts';
@@ -39,6 +40,15 @@ const nromTemplate128 = loadExternal('nrom-template.nes', NROM_TEMPLATE_128_SHA2
 // uorom-template は tools/build-uorom-template.sh でビルドする（SHA-256 は nrom-template と同じツールチェーンでの値）
 const UOROM_TEMPLATE_SHA256 = '496be489d926ef66ef820ae18a617b4cb3d8edf09dfd1e46e8b8f0dad6c235fd';
 const uoromTemplate = loadExternal('uorom-template.nes', UOROM_TEMPLATE_SHA256);
+
+// clbr-cnrom は tools/build-clbr-cnrom.sh でビルドする（SHA-256 は nrom-template と同じツールチェーンでの値）
+const CLBR_CNROM_SHA256 = 'd9d0dd3040deff791857bbb0fa67765ac545b2665e05821d9fed94374e901fb4';
+const clbrCnrom = loadExternal('clbr-cnrom.nes', CLBR_CNROM_SHA256);
+/** ビルドに使った CHR の元ファイル（ROM とは独立な正解）。tiles.chr = bank 0 … tiles5.chr = bank 4（crt0.s の CHARS〜CHARS5） */
+const clbrChr = ['tiles.chr', 'tiles2.chr', 'tiles3.chr', 'tiles4.chr', 'tiles5.chr'].map((name) => {
+  const url = new URL(`../../test-roms/external/clbr-nes/cnrom/${name}`, import.meta.url);
+  return existsSync(url) ? new Uint8Array(readFileSync(url)) : null;
+});
 
 const NESTEST_SHA256 = 'f67d55fd6b3cf0bad1cc85f1df0d739c65b53e79cecb7fea8f77ec0eadab0004';
 const nestest = loadExternal('nestest.nes', NESTEST_SHA256);
@@ -341,5 +351,56 @@ describe.skipIf(!uoromTemplate)('uorom-template.nes (UOROM, pinobatch)', () => {
     expect(Array.from({ length: 6 }, (_, i) => readCpu(rom, m, 0xc330 + i)!.value)).toEqual([0xff, 0x7f, 0x02, 0xff, 0x9f, 0x0d]);
     // load_chr_ram_far は bank 13 の $A000 = PRG +$36000
     expect(readCpu(rom, prgMapping(rom, 13)!, 0xa000)!.prgOffset).toBe(13 * 0x4000 + 0x2000);
+  });
+});
+
+/**
+ * clbr-cnrom.nes（clbr/nes の cnrom サンプル, Mapper 3, PRG 32 KiB, CHR 40 KiB = 5 bank）。
+ * 期待値は crt0.s・main.c と、ビルド時に ld65 の -m / -Ln で出した map・ラベルから手で読んだもの:
+ *   start (RESET) $8000, bankswitch $826B（JSR pusha / LDY #0 / LDA (sp),Y / TAX / LDA (sp),Y / STA L003E,X / JMP incsp1）,
+ *   L003E（bankswitch の static const arr[] = {0, 1, 2, 3, 4}）$90A9, pusha $8FD5, incsp1 $8F4D
+ */
+describe.skipIf(!clbrCnrom)('clbr-cnrom.nes (CNROM, clbr/nes)', () => {
+  // skipIf でもテスト収集のため describe の本体は実行されるので、ROM が無い環境（CI）ではここで抜ける
+  if (!clbrCnrom) return;
+  const rom = parseRom(clbrCnrom);
+
+  it('is an iNES Mapper 3 ROM with 32 KiB PRG and 5 CHR banks (over the 4-bank CNROM limit)', () => {
+    expect(rom.header).toMatchObject({ format: 'iNES', mapper: 3, prgRomSize: 32 * 1024, chrRomSize: 40 * 1024, mirroring: 'vertical' });
+    const m = chrMapping(rom)!;
+    expect(m.bankSwitch).toMatchObject({ bankCount: 5, bits: 3, board: 'CNROM 互換（大容量）', busConflicts: null });
+    expect(m.warnings[0]).toContain('bank 5〜7');
+  });
+
+  // テスト名に "$0000" と書くと vitest の $ 置換に食われるため、pattern table と書く
+  it.each([0, 1, 2, 3, 4])('both pattern tables with bank %i selected are tiles*.chr byte for byte', (bank) => {
+    // ビルドスクリプトはソースを残すので、ROM があるのに元ファイルが無いのは手順の誤り（黙って通さない）
+    const src = clbrChr[bank]!;
+    expect(src).toBeTruthy();
+    const m = chrMapping(rom, bank)!;
+    const seen = Array.from({ length: 0x2000 }, (_, ppu) => readPpu(rom, m, ppu)!.value);
+    expect(seen).toEqual([...src]);
+    // 5 bank がすべて別の中身であること（同じ bank を読んでいるだけで一致する見落としを避ける）
+    expect(clbrChr.filter((c) => c && c.every((v, i) => v === src[i]))).toHaveLength(1);
+  });
+
+  it('starts at the RESET vector $8000 with the crt0.s start code', () => {
+    const v = readVectors(rom)!;
+    expect(v.basis).toBe('fixed');
+    expect(v.entries[1]!.target!.cpu).toBe(0x8000);
+    const lines = disassemble(rom, prgMapping(rom)!, 0x8000, 7, vectorLabels(v)).lines;
+    expect(lines.map((l) => l.text)).toEqual(['SEI', 'LDX #$FF', 'TXS', 'INX', 'STX $2001', 'STX $4010', 'STX $2000']);
+    expect(lines[0]!.labels).toEqual(['RESET']);
+  });
+
+  // main.c の bankswitch(): (u8) arr[to] = to。cc65 は STA L003E,X にし、arr は 0〜4 の 5 byte
+  it('explains STA $90A9,X in bankswitch() as a CHR bank select through the 0..4 table', () => {
+    const lines = disassemble(rom, prgMapping(rom)!, 0x826b, 7).lines;
+    expect(lines.map((l) => l.text)).toEqual(['JSR $8FD5', 'LDY #$00', 'LDA ($2C),Y', 'TAX', 'LDA ($2C),Y', 'STA $90A9,X', 'JMP $8F4D']);
+    expect(lines[5]!.notes).toEqual([
+      'CNROM 互換（大容量） の CHR bank 選択: A の下位 3 bit の 8 KiB の CHR bank が PPU $0000-$1FFF に入る（ROM の中身は書き換わらない）。',
+      '$90A9 からは 0, 1, 2… と並んだテーブル。bank 番号と同じ値を持つ番地に書くことで、bus conflict（書く値と ROM の値の衝突）を避ける定番の形。',
+    ]);
+    expect(readCpuBytes(rom, 0x90a9, 5)).toEqual([0, 1, 2, 3, 4]);
   });
 });

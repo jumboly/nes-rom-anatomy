@@ -5,7 +5,7 @@
  * ここでは色を扱わない。CHR が持つのはピクセル値 0-3 だけで、
  * 実際の色は PPU のパレット RAM ($3F00-$3F1F) で決まり、ROM には含まれないため。
  */
-import { hasFixedChr } from './mapper.ts';
+import { chrMapping, chrToPpu } from './ppu-map.ts';
 import { findRegion, type NesRom } from './rom.ts';
 
 export const TILE_BYTES = 16;
@@ -68,10 +68,12 @@ export interface TileLocation {
   tileIndex: number;
   fileOffset: number;
   /**
-   * PPU から見えるアドレス。Mapper を介さずに決まる場合（NROM で CHR 8 KiB）のみ値を持つ。
-   * それ以外は bank 切り替え次第なので null（CNROM の CHR 切り替えは Phase 8）
+   * PPU から見えるアドレス（ppu-map.ts の対応による）。CNROM ではそのタイルの bank を入れた場合のアドレス。
+   * 対応が決まらない Mapper（MMC1 / MMC3 など）と、PPU から見えない位置（NROM の 8 KiB より先）では null
    */
   ppuAddress: number | null;
+  /** ppuAddress が「この bank を PPU $0000-$1FFF に入れた場合」のものなら、その bank（CNROM）。固定の対応なら null */
+  ppuBank: number | null;
   /** 16 byte がすべてファイル内に存在するか */
   available: boolean;
 }
@@ -81,14 +83,17 @@ export function locateTile(rom: NesRom, bank: number, patternTable: 0 | 1, tileI
   if (!region) throw new Error('ROM has no CHR-ROM');
   const bankOffset = patternTable * PATTERN_TABLE_BYTES + tileIndex * TILE_BYTES;
   const chrOffset = bank * CHR_BANK_BYTES + bankOffset;
-  const fixedMapping = hasFixedChr(rom.header);
+  // CNROM はタイルの属する bank を入れた対応で引く（Hex から来たタイルも、その bank を見ている前提で PPU アドレスを示すため）
+  const m = chrMapping(rom, bank);
+  const ppu = m ? chrToPpu(m, chrOffset) : [];
   return {
     chrOffset,
     bank,
     patternTable,
     tileIndex,
     fileOffset: region.offset + chrOffset,
-    ppuAddress: fixedMapping ? bankOffset : null,
+    ppuAddress: ppu[0] ?? null,
+    ppuBank: m?.bankSwitch && ppu.length ? m.bankSwitch.bank : null,
     available: chrOffset + TILE_BYTES <= region.available,
   };
 }

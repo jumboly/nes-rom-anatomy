@@ -16,7 +16,8 @@
 | `synthetic-uxrom.nes` | iNES | 128 KiB（8 bank） | なし（CHR-RAM） | なし | Mapper 2 (UNROM) の PRG bank 切り替え（Phase 7） |
 
 共通: vertical mirroring, battery なし。Mapper は `synthetic-cnrom.nes` が 3、`synthetic-uxrom.nes` が 2、他は 0。
-PRG-ROM の内容は UxROM 以外すべて同じ（CHR-RAM 版も、CHR-RAM へタイルを転送するコードは含まない）。UxROM は下の別表。
+PRG-ROM の内容は UxROM 以外ほぼ同じ（CHR-RAM 版も、CHR-RAM へタイルを転送するコードは含まない）。
+CNROM はリセット処理に CHR bank の選択が加わる（下の注）。UxROM は下の別表。
 
 ### PRG-ROM の内容
 
@@ -29,6 +30,10 @@ PRG-ROM の内容は UxROM 以外すべて同じ（CHR-RAM 版も、CHR-RAM へ�
 | `$FFFA-$FFFF` | 末尾 6 byte | NMI=`$8100`, RESET=`$8000`, IRQ=`$8200` |
 
 未使用領域は `$FF`。
+
+`synthetic-cnrom.nes` だけは、`$8000` のリセット処理が
+`SEI / CLD / LDX #$FF / TXS / LDA #$00 / STA $2000 / STA $2001 / LDA #$02 / TAY / STA $FE00,Y / LDA #$03 / STA $FE03 / loop: JMP $8018`
+（表を使って CHR bank 2 を選び、表の番地へ直接書いて bank 3 を選ぶ）で、`$FE00-$FE03`（PRG `+$7E00`, File `$7E10`）に bank 番号表 `00 01 02 03` がある。
 
 ### PRG-ROM の内容（synthetic-uxrom.nes）
 
@@ -90,6 +95,7 @@ da65（cc65 付属の逆アセンブラ, `--cpu 6502x`）に逆アセンブル�
 | `nrom-template256.nes` | `tools/build-nrom-template.sh` でビルド | `217dab9800641fe6bdd221eb7cc7b3abc988db600530283430cd56bb77cf97ac` | iNES, Mapper 0, PRG 32 KiB, CHR 8 KiB, horizontal |
 | `nrom-template.nes` | 同上 | `b30dce8d2f816d712edbaa3660d01203122d7ef70079ff1158534a5ac5607745` | iNES, Mapper 0, PRG 16 KiB, CHR 8 KiB, horizontal |
 | `uorom-template.nes` | `tools/build-uorom-template.sh` でビルド | `496be489d926ef66ef820ae18a617b4cb3d8edf09dfd1e46e8b8f0dad6c235fd` | iNES, Mapper 2 (UOROM), PRG 256 KiB (16 bank), CHR-RAM, vertical |
+| `clbr-cnrom.nes` | `tools/build-clbr-cnrom.sh` でビルド | `d9d0dd3040deff791857bbb0fa67765ac545b2665e05821d9fed94374e901fb4` | iNES, Mapper 3, PRG 32 KiB, CHR 40 KiB (5 bank), vertical |
 
 nestest は再配布条件が明示されていないため同梱しない。
 
@@ -141,3 +147,23 @@ nrom-template と同じ作者・ツールチェーンなので、ビルド手順
 - `setPRGBank` (`$C209`): `STA $1D / TAY / STA $C320,Y / RTS`。`$C320` は `identity16`（`00 01 … 0F`）で、bus conflict を避ける
 - リセット処理の最後で `LDA #4 / JSR setPRGBank / JMP main`。`main` は bank 4 の `$8000`
 - bank をまたぐ呼び出し表 `bankcall_table` (`$C330`): `draw_player_sprite_far` = bank 2 の `$8000`、`load_chr_ram_far` = bank 13 の `$A000`
+
+### clbr-cnrom（実在 ROM, CNROM）
+
+[clbr/nes](https://github.com/clbr/nes)（neslib の作者 clbr によるサンプル集。デモは CC-BY、ツールは GPLv3）の `cnrom/`。
+C（cc65）で書かれ、Start ボタンで CHR bank を 0〜4 と切り替える。ビルドに必要なのは cc65 だけ。
+
+```sh
+./tools/build-clbr-cnrom.sh
+```
+
+コミット `3efebf8` に固定してビルドする。ソースは `test-roms/external/clbr-nes/` に残る。
+
+CHR は 5 bank（40 KiB）で、純正 CNROM 基板の上限（2 bit = 4 bank）を超え、2 のべき乗でもない。
+上流のコミット名 "Go over the limits" のとおり意図したもので、bank 数が 2 のべき乗でない場合の警告の確認にも使える。
+
+既知の値（ソースと、ld65 の `-m` / `-Ln` で出した map・ラベルより）:
+
+- ベクタ: RESET = `$8000`（crt0.s の `start`: `SEI / LDX #$FF / TXS / INX / STX $2001 / STX $4010 / STX $2000 …`）
+- `bankswitch()` (`$826B`): main.c の `(u8) arr[to] = to` を cc65 が `JSR pusha / LDY #$00 / LDA ($2C),Y / TAX / LDA ($2C),Y / STA $90A9,X / JMP incsp1` にしたもの。`$90A9` は `arr[] = {0, 1, 2, 3, 4}` で、bus conflict を避ける表
+- CHR bank n = ソースの `tiles.chr`（bank 0）, `tiles2.chr` 〜 `tiles5.chr`（bank 1〜4）。`src/nes/external-roms.test.ts` は、各 bank を入れた PPU $0000-$1FFF がこれらのファイルと 1 byte ずつ一致することを確かめる

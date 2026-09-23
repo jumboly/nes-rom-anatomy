@@ -9,6 +9,7 @@ import { renderHeader } from './ui/header-view.ts';
 import { createHexView } from './ui/hex-view.ts';
 import { renderLayout } from './ui/layout-view.ts';
 import { createNavigator, type Navigator } from './ui/nav.ts';
+import { renderPpuView } from './ui/ppu-view.ts';
 import { renderVectorView } from './ui/vector-view.ts';
 
 // Vite にバンドルさせることで、サーバー無しの静的ホスティングでもサンプルを開けるようにする
@@ -34,7 +35,7 @@ function show(name: string, data: Uint8Array) {
         h.chrRomSize ? `CHR ${formatSize(h.chrRomSize)}` : 'CHR-RAM'].join(' | '));
     // ビューは互いに直接参照せず、nav に登録した handler 経由で移動する（どの順に作っても循環しないように）
     app.replaceChildren(summary, renderHeader(h), renderLayout(rom, nav), renderCpuView(rom, nav), renderVectorView(rom, nav),
-      createDisasmView(rom, nav), renderChrView(rom, nav), createHexView(rom, data, nav));
+      createDisasmView(rom, nav), renderPpuView(rom, nav), renderChrView(rom, nav), createHexView(rom, data, nav));
     document.title = `${name} — NES ROM Anatomy`;
   } catch (e) {
     const msg = e instanceof HeaderError ? e.message : `解析中にエラーが発生しました: ${String(e)}`;

@@ -12,8 +12,9 @@ import {
   tileAtChrOffset,
   type TileLocation,
 } from '../nes/chr.ts';
+import { chrMapping } from '../nes/ppu-map.ts';
 import type { NesRom } from '../nes/rom.ts';
-import { el, formatSize, hex } from './format.ts';
+import { addrText, el, formatSize, hex } from './format.ts';
 import type { Navigator } from './nav.ts';
 import { PALETTES, rgbOf, type Palette } from './palettes.ts';
 
@@ -106,9 +107,17 @@ function tileAt(canvas: HTMLCanvasElement, e: MouseEvent): number | null {
 
 const bin8 = (v: number) => v.toString(2).padStart(8, '0');
 
-function ppuText(loc: TileLocation, rom: NesRom): string {
-  if (loc.ppuAddress !== null) return `$${hex(loc.ppuAddress, 4)}`;
-  return `Mapper ${rom.header.mapper} による bank 切り替え次第（未対応）`;
+/** PPU address の表記。CNROM では「その bank を入れたとき」のアドレスなので、bank を添えて示す */
+const ppuLabel = (loc: TileLocation, address: number) => addrText(address, loc.ppuBank ?? undefined);
+
+function ppuCell(loc: TileLocation, rom: NesRom, nav: Navigator): (Node | string)[] {
+  if (loc.ppuAddress === null) {
+    return [chrMapping(rom)
+      ? 'PPU からは見えない（$0000-$1FFF の窓の外）'
+      : `Mapper ${rom.header.mapper} による bank 切り替え次第（未対応）`];
+  }
+  const link = nav.link({ view: 'ppu', ppu: loc.ppuAddress, ...(loc.ppuBank === null ? {} : { bank: loc.ppuBank }) }, ppuLabel(loc, loc.ppuAddress));
+  return loc.ppuBank === null ? [link] : [link, `（bank ${loc.ppuBank} を $0000-$1FFF に入れたとき）`];
 }
 
 function renderInspector(
@@ -168,7 +177,7 @@ function renderInspector(
     el('tr', {}, el('th', {}, 'Tile'), el('td', { class: 'mono' }, `$${hex(sel.tile, 2)}（pattern table ${tableBase} 側, bank ${bank}）`)),
     el('tr', {}, el('th', {}, 'CHR offset'), el('td', { class: 'mono' }, `$${hex(loc.chrOffset, 5)}`)),
     el('tr', {}, el('th', {}, 'File offset'), el('td', {}, fileLink)),
-    el('tr', {}, el('th', {}, 'PPU address'), el('td', { class: 'mono' }, ppuText(loc, rom))),
+    el('tr', {}, el('th', {}, 'PPU address'), el('td', { class: 'mono' }, ...ppuCell(loc, rom, nav))),
   );
 
   return el('div', { class: 'tile-inspector', id: 'tile-inspector' },
@@ -242,7 +251,7 @@ export function renderChrView(rom: NesRom, nav: Navigator): HTMLElement {
       });
       const first = locateTile(rom, bank, t, 0);
       const range = first.ppuAddress !== null
-        ? `PPU $${hex(first.ppuAddress, 4)}–$${hex(first.ppuAddress + 0xfff, 4)}`
+        ? `PPU ${ppuLabel(first, first.ppuAddress)}–$${hex(first.ppuAddress + 0xfff, 4)}`
         : `pattern table $${hex(t * 0x1000, 4)} 側`;
       captions[t].textContent = `${range}  /  File $${hex(first.fileOffset, 6)}`;
     }
@@ -259,7 +268,7 @@ export function renderChrView(rom: NesRom, nav: Navigator): HTMLElement {
       const tile = tileAt(canvas, e);
       if (tile === null) return;
       const loc = locateTile(rom, bank, t, tile);
-      const ppu = loc.ppuAddress !== null ? `  PPU $${hex(loc.ppuAddress, 4)}` : '';
+      const ppu = loc.ppuAddress !== null ? `  PPU ${ppuLabel(loc, loc.ppuAddress)}` : '';
       hover.textContent = `Tile $${hex(tile, 2)} (table ${t})  CHR +$${hex(loc.chrOffset, 5)}  File $${hex(loc.fileOffset, 6)}${ppu}`;
     });
     canvas.addEventListener('click', (e) => {
@@ -300,15 +309,21 @@ export function renderChrView(rom: NesRom, nav: Navigator): HTMLElement {
   decodeBank();
   draw();
 
-  const bankNote = banks > 1
+  // CNROM は 8 KiB bank を丸ごと PPU $0000-$1FFF に入れるので、ファイル上の bank の選択がそのまま「入れる bank」の選択になる
+  const switchable = chrMapping(rom)?.bankSwitch ?? null;
+  const bankNote = switchable
     ? el('p', { class: 'note' },
-      `CHR-ROM は ${banks} 個の 8 KiB bank からなります。PPU $0000-$1FFF にどの bank が見えるかは Mapper ${rom.header.mapper} の bank 切り替えで決まるため、ここではファイル上の bank 単位で表示しています。`)
-    : '';
+      `CHR-ROM は ${banks} 個の 8 KiB bank からなり、${switchable.board} ではそのうち 1 つが PPU $0000-$1FFF に丸ごと見えます（CPU $8000-$FFFF への書き込みで切り替え）。` +
+      '選んだ bank を入れた場合の PPU address を $02:0A30 の形で示します。電源投入時にどの bank が入っているかは不定です。')
+    : banks > 1
+      ? el('p', { class: 'note' },
+        `CHR-ROM は ${banks} 個の 8 KiB bank からなります。PPU $0000-$1FFF にどの bank が見えるかは Mapper ${rom.header.mapper} の bank 切り替えで決まるため、ここではファイル上の bank 単位で表示しています。`)
+      : '';
 
   const section = el('section', { class: 'card', id: 'chr-view' },
     el('h2', {}, 'CHR — Pattern Tables'),
     el('div', { class: 'chr-controls' },
-      banks > 1 ? el('label', {}, 'Bank ', bankSelect) : '',
+      banks > 1 ? el('label', {}, switchable ? 'PPU $0000-$1FFF に入れる bank ' : 'Bank ', bankSelect) : '',
       el('label', {}, 'Palette ', paletteSelect),
       swatches,
       el('label', {}, 'Zoom ', scaleSelect),

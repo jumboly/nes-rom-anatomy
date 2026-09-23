@@ -60,20 +60,29 @@ describe('crossRef: CHR-ROM', () => {
     const x = crossRef(loadFixture('synthetic-nrom256.nes'), chr + 0x1000 + 2 * 16 + 9);
     expect(x.region).toBe('chr-rom');
     expect(x.tile).toEqual({ bank: 0, patternTable: 1, tileIndex: 2, byteInTile: 9, row: 1, plane: 1 });
+    expect(x.ppu).toEqual([{ ppu: 0x1029 }]);
     expect(x.cpu).toEqual([]);
   });
 
-  it('CNROM: the bank comes from the CHR offset', () => {
+  it('CNROM: the bank comes from the CHR offset, and the PPU address holds with that bank switched in', () => {
     const chr = PRG + 0x8000;
     const x = crossRef(loadFixture('synthetic-cnrom.nes'), chr + 2 * 0x2000 + 12 * 16);
     expect(x.tile).toMatchObject({ bank: 2, patternTable: 0, tileIndex: 12, row: 0, plane: 0 });
+    expect(x.ppu).toEqual([{ ppu: 0x00c0, bank: 2 }]);
+  });
+
+  it('a CHR byte past the 8 KiB NROM window has no PPU address; MMC1 depends on the registers', () => {
+    const big = romWith({ prgKiB: 32, chrKiB: 16, vectors: [0x8000, 0x8000, 0x8000] });
+    expect(crossRef(big, PRG + 0x8000 + 0x2000).ppu).toEqual([]);
+    const mmc1 = romWith({ prgKiB: 32, mapper: 1, chrKiB: 16, vectors: [0x8000, 0x8000, 0x8000] });
+    expect(crossRef(mmc1, PRG + 0x8000).ppu).toBeNull();
   });
 });
 
 describe('crossRef: other regions', () => {
   it('header and bytes outside every region have no other view', () => {
     const rom = loadFixture('synthetic-nrom256.nes');
-    expect(crossRef(rom, 4)).toMatchObject({ region: 'header', cpu: [], disasm: [], tile: null, trainerCpu: null });
+    expect(crossRef(rom, 4)).toMatchObject({ region: 'header', cpu: [], disasm: [], tile: null, ppu: [], trainerCpu: null });
     expect(crossRef(rom, rom.fileSize + 10)).toMatchObject({ region: null, relative: 0, cpu: [] });
   });
 });

@@ -9,6 +9,7 @@
  */
 import { prgMapping, readCpu, type CpuByte, type PrgMapping } from './cpu-map.ts';
 import { OPCODES, type AddressingMode, type Opcode } from './opcodes.ts';
+import { chrMapping } from './ppu-map.ts';
 import type { NesRom } from './rom.ts';
 import { readVectors, type VectorBasis, type VectorTable } from './vectors.ts';
 
@@ -94,32 +95,64 @@ function operandText(op: Opcode, value: number, target: number | null): string {
   }
 }
 
-/** 書き込み命令。UxROM ではこれらで $8000-$FFFF に書くと bank が切り替わる */
+/** 書き込み命令。UxROM / CNROM ではこれらで $8000-$FFFF に書くと bank が切り替わる */
 const STORES = new Set(['STA', 'STX', 'STY']);
 
 /**
- * UxROM の bank 選択レジスタへの書き込みの説明。
+ * $8000-$FFFF への書き込みで bank を選ぶレジスタ（UxROM の PRG / CNROM の CHR）。
+ * どちらも「書いた値の下位 bit をラッチする」同じ形の回路なので、注記は 1 つの関数で作る。
+ */
+interface BankRegister {
+  board: string;
+  bits: number;
+  bankCount: number;
+  /** 選んだ bank がどこに入るか（例: "bank が $8000-$BFFF に入る"） */
+  effect: string;
+  busConflicts: boolean | null;
+  /** これ以上の番地は ROM の値が表示中の bank に依存せず確定する（bus conflict の判定に使う） */
+  certainFrom: number;
+}
+
+function bankRegister(rom: NesRom, m: PrgMapping): BankRegister | null {
+  const prg = m.bankSwitch;
+  if (prg) {
+    // 書き込み先が切り替え窓の中なら、そこの値は表示中の bank 次第なので固定 bank ($C000-) だけを確定とする
+    return { board: prg.board, bits: prg.bits, bankCount: prg.bankCount, effect: 'bank が $8000-$BFFF に入る', busConflicts: prg.busConflicts, certainFrom: 0xc000 };
+  }
+  const chr = chrMapping(rom)?.bankSwitch;
+  if (chr) {
+    // CNROM は PRG が固定なので、書き込み先の ROM の値は常に確定する
+    return { board: chr.board, bits: chr.bits, bankCount: chr.bankCount, effect: '8 KiB の CHR bank が PPU $0000-$1FFF に入る', busConflicts: chr.busConflicts, certainFrom: 0x8000 };
+  }
+  return null;
+}
+
+/**
+ * bank 選択レジスタへの書き込みの説明。
  * 逆アセンブル結果の `STA $C320,Y` は、それだけでは ROM に書こうとしている不可解な命令に見えるため。
  * index 付きで書く先が 0, 1, 2… と並んだテーブルなら、bus conflict を避ける定番の形であることも示す。
  */
 function bankWriteNotes(rom: NesRom, m: PrgMapping, op: Opcode, value: number): string[] {
-  const sw = m.bankSwitch;
-  if (!sw || !STORES.has(op.mnemonic) || value < 0x8000 || !(op.mode === 'abs' || op.mode === 'abx' || op.mode === 'aby')) return [];
+  if (!STORES.has(op.mnemonic) || value < 0x8000 || !(op.mode === 'abs' || op.mode === 'abx' || op.mode === 'aby')) return [];
+  const r = bankRegister(rom, m);
+  if (!r) return [];
   const reg = op.mnemonic.slice(2);
-  const notes = [`${sw.board} の bank 選択: ${reg} の下位 ${sw.bits} bit の bank が $8000-$BFFF に入る（ROM の中身は書き換わらない）。`];
-  if (sw.busConflicts === false) return notes;
+  const what = m.bankSwitch ? 'bank 選択' : 'CHR bank 選択';
+  const notes = [r.bankCount > 1
+    ? `${r.board} の ${what}: ${reg} の下位 ${r.bits} bit の ${r.effect}（ROM の中身は書き換わらない）。`
+    : `${r.board} の ${what}レジスタへの書き込み（bank が 1 つしかないため、見える中身は変わらない）。`];
+  if (r.busConflicts === false) return notes;
   if (op.mode === 'abs') {
     const b = readCpu(rom, m, value);
-    // 書き込み先が切り替え窓の中なら、そこの値は表示中の bank 次第なので断定しない
-    if (b?.value != null && value >= 0xc000) {
+    if (b?.value != null && value >= r.certainFrom) {
       notes.push(`bus conflict のある基板では、書く値が ${hex4(value)} の ROM の値 (${hex2(b.value)}) と一致していないと結果が不定になる。`);
     }
     return notes;
   }
-  const table = Array.from({ length: sw.bankCount }, (_, i) => readCpu(rom, m, value + i)?.value);
+  const table = Array.from({ length: r.bankCount }, (_, i) => readCpu(rom, m, value + i)?.value);
   if (table.every((v, i) => v === i)) {
     notes.push(`${hex4(value)} からは 0, 1, 2… と並んだテーブル。bank 番号と同じ値を持つ番地に書くことで、bus conflict（書く値と ROM の値の衝突）を避ける定番の形。`);
-  } else if (sw.busConflicts === true) {
+  } else if (r.busConflicts === true) {
     notes.push('bus conflict のある基板では、書く値と書き込み先の ROM の値が一致している必要がある。');
   }
   return notes;

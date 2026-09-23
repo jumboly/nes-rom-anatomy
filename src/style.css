@@ -81,7 +81,7 @@ table { border-collapse: collapse; }
 /* 移動元が指していた範囲（命令・タイル・ベクタの 2 byte）。選択中の 1 byte より弱く塗って区別する */
 .hex-row .in-range { background: color-mix(in srgb, #f5d547 40%, transparent); }
 .hex-xref { color: var(--muted); }
-.hex-xref a, .tile-bytes a, .cpu-lookup a, .vector-entry a { color: var(--prg); }
+.hex-xref a, .tile-bytes a, .cpu-lookup a, .vector-entry a, .tile-inspector .kv a { color: var(--prg); }
 .hex-status, .chr-status { margin-top: 6px; font-size: 12px; }
 
 /* CHR */
@@ -143,6 +143,9 @@ table { border-collapse: collapse; }
 .swatch.cpu-area-prg-ram { background: var(--misc); }
 .swatch.cpu-area-trainer { background: var(--trainer); }
 .swatch.cpu-area-prg-rom { background: var(--prg); }
+.swatch.ppu-area-pattern-table { background: var(--chr); }
+.swatch.ppu-area-nametable { background: #8e8e8e; }
+.swatch.ppu-area-palette { background: var(--misc); }
 .table-scroll { overflow-x: auto; }
 /* 狭い画面で説明列が潰れて行が極端に縦長になるのを避け、横スクロールさせる */
 .cpu-areas { min-width: 900px; }

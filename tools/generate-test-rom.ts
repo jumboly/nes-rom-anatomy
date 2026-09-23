@@ -136,11 +136,48 @@ function buildUxromPrg(banks: number): Uint8Array {
   return prg;
 }
 
-function buildPrg(banks: number): Uint8Array {
+// ---------------------------------------------------------------------------
+// CNROM (Mapper 3) の PRG-ROM
+// ---------------------------------------------------------------------------
+
+/**
+ * CNROM は PRG が NROM-256 と同じ固定配線で、$8000-$FFFF への書き込みの値で PPU $0000-$1FFF の 8 KiB CHR bank を選ぶ。
+ * bank 番号表（0, 1, 2, 3）は UxROM と同じく bus conflict を避けるためのもの。
+ * PRG は固定なので $FE00 がどの bank にも隠れず、書き込み先の ROM の値が常に確定する
+ */
+export const CNROM_BANK_TABLE = 0xfe00;
+/** リセット処理が表を使って選ぶ CHR bank と、表の番地へ直接書いて選ぶ CHR bank */
+export const CNROM_TABLE_BANK = 2;
+export const CNROM_DIRECT_BANK = 3;
+
+// prettier-ignore
+export const CNROM_RESET_CODE = [
+  0x78,             // $8000  SEI
+  0xd8,             // $8001  CLD
+  0xa2, 0xff,       // $8002  LDX #$FF
+  0x9a,             // $8004  TXS
+  0xa9, 0x00,       // $8005  LDA #$00
+  0x8d, 0x00, 0x20, // $8007  STA $2000
+  0x8d, 0x01, 0x20, // $800A  STA $2001
+  0xa9, CNROM_TABLE_BANK, // $800D  LDA #$02
+  0xa8,             // $800F  TAY
+  0x99, 0x00, 0xfe, // $8010  STA $FE00,Y   ; CHR bank 2 を PPU $0000-$1FFF へ（表で bus conflict 回避）
+  0xa9, CNROM_DIRECT_BANK, // $8013  LDA #$03
+  0x8d, 0x03, 0xfe, // $8015  STA $FE03     ; CHR bank 3 へ（$FE03 の ROM の値も $03）
+  0x4c, 0x18, 0x80, // $8018  loop: JMP $8018
+];
+
+function buildPrg(banks: number, mapper: number): Uint8Array {
   const prg = new Uint8Array(banks * PRG_BANK_SIZE).fill(PRG_FILL);
   // CPU $8000 = PRG offset 0（NROM-128/256 どちらでも bank 0 の先頭）
   const put = (cpuAddr: number, bytes: number[]) => prg.set(bytes, cpuAddr - 0x8000);
-  put(RESET_ADDR, RESET_CODE);
+  if (mapper === 3) {
+    put(RESET_ADDR, CNROM_RESET_CODE);
+    // 表の長さは CHR bank 数。CNROM の fixture は CHR 4 bank
+    put(CNROM_BANK_TABLE, [0, 1, 2, 3]);
+  } else {
+    put(RESET_ADDR, RESET_CODE);
+  }
   put(NMI_ADDR, NMI_CODE);
   put(IRQ_ADDR, IRQ_CODE);
 
@@ -271,7 +308,7 @@ export function buildSyntheticRom(opts: SyntheticRomOptions): Uint8Array {
   const parts = [
     buildHeader(opts),
     ...(opts.trainer ? [buildTrainer()] : []),
-    opts.mapper === 2 ? buildUxromPrg(opts.prgBanks) : buildPrg(opts.prgBanks),
+    opts.mapper === 2 ? buildUxromPrg(opts.prgBanks) : buildPrg(opts.prgBanks, opts.mapper),
     ...(opts.chrBanks > 0 ? [buildChr(opts.chrBanks)] : []),
   ];
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));

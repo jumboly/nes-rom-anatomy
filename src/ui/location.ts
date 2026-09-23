@@ -9,6 +9,7 @@
  *   #disasm=C000                逆アセンブル
  *   #disasm=03:8123 #cpu=03:C000  UxROM: $8000-$BFFF に bank 03 を入れた状態で（デバッガの bank:address 表記に倣う。
  *                               $C000- のアドレスでも、切り替え窓に入れる bank を表す）
+ *   #ppu=1A30  #ppu=02:1A30     PPU アドレスから引く。bank は CNROM で $0000-$1FFF に入れる 8 KiB bank（CPU 側と同じ bank:address 表記）
  *   #chr=00A35                  CHR offset の 1 byte（bank / pattern table / タイル / タイル内の行が決まり、その byte を強調する）
  *   #tile=00A30                 タイルの選択だけ（Pattern Table でクリックした場合。byte は強調しない）
  */
@@ -17,6 +18,8 @@ export type NavLocation =
   /** bank: UxROM の切り替え窓に入れる bank。省略するとビューが今選んでいる bank のまま */
   | { view: 'cpu'; cpu: number; bank?: number }
   | { view: 'disasm'; cpu: number; bank?: number }
+  /** bank: CNROM の PPU $0000-$1FFF に入れる bank。省略するとビューが今選んでいる bank のまま */
+  | { view: 'ppu'; ppu: number; bank?: number }
   | { view: 'chr'; chrOffset: number; highlight: boolean };
 
 const h = (v: number, digits: number) => v.toString(16).toUpperCase().padStart(digits, '0');
@@ -28,6 +31,8 @@ export function formatHash(loc: NavLocation): string {
     case 'cpu':
     case 'disasm':
       return `#${loc.view}=${loc.bank === undefined ? '' : `${h(loc.bank, 2)}:`}${h(loc.cpu, 4)}`;
+    case 'ppu':
+      return `#ppu=${loc.bank === undefined ? '' : `${h(loc.bank, 2)}:`}${h(loc.ppu, 4)}`;
     case 'chr':
       return `#${loc.highlight ? 'chr' : 'tile'}=${h(loc.chrOffset, 5)}`;
   }
@@ -37,7 +42,7 @@ const HEX = /^[0-9A-Fa-f]{1,8}$/;
 
 /** 手で書き換えた hash も受け付けるため、書式が崩れていれば null を返す（例外にしない） */
 export function parseHash(hash: string): NavLocation | null {
-  const m = /^#?(hex|cpu|disasm|chr|tile)=([^&]*)$/.exec(hash);
+  const m = /^#?(hex|cpu|disasm|ppu|chr|tile)=([^&]*)$/.exec(hash);
   if (!m) return null;
   const [, key, arg] = m as unknown as [string, NavLocation['view'] | 'tile', string];
   const view = key === 'tile' ? 'chr' : key;
@@ -49,10 +54,11 @@ export function parseHash(hash: string): NavLocation | null {
     return end < offset ? null : { view, offset, length: end - offset + 1 };
   }
   if (view === 'chr') return HEX.test(arg) ? { view, chrOffset: parseInt(arg, 16), highlight: key === 'chr' } : null;
-  // bank は 1 byte（Mapper 2 の拡張基板でも 256 bank まで）
+  // bank は 1 byte（Mapper 2 / 3 の拡張基板でも 256 bank まで）
   const a = /^(?:([0-9A-Fa-f]{1,2}):)?([0-9A-Fa-f]{1,8})$/.exec(arg);
   if (!a) return null;
-  const cpu = parseInt(a[2]!, 16);
-  if (cpu > 0xffff) return null;
-  return a[1] === undefined ? { view, cpu } : { view, cpu, bank: parseInt(a[1], 16) };
+  const address = parseInt(a[2]!, 16);
+  const bank = a[1] === undefined ? {} : { bank: parseInt(a[1], 16) };
+  if (view === 'ppu') return address > 0x3fff ? null : { view, ppu: address, ...bank };
+  return address > 0xffff ? null : { view, cpu: address, ...bank };
 }

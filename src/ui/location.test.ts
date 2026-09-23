@@ -10,6 +10,9 @@ describe('formatHash / parseHash', () => {
     [{ view: 'disasm', cpu: 0x8000 }, '#disasm=8000'],
     [{ view: 'disasm', cpu: 0x8123, bank: 3 }, '#disasm=03:8123'],
     [{ view: 'cpu', cpu: 0xc000, bank: 0x0f }, '#cpu=0F:C000'],
+    [{ view: 'ppu', ppu: 0x1a30 }, '#ppu=1A30'],
+    [{ view: 'ppu', ppu: 0x00c0, bank: 2 }, '#ppu=02:00C0'],
+    [{ view: 'ppu', ppu: 0x3f00 }, '#ppu=3F00'],
     [{ view: 'chr', chrOffset: 0x1025, highlight: true }, '#chr=01025'],
     [{ view: 'chr', chrOffset: 0x1020, highlight: false }, '#tile=01020'],
   ];
@@ -23,7 +26,7 @@ describe('formatHash / parseHash', () => {
     expect(parseHash('disasm=c0de')).toEqual({ view: 'disasm', cpu: 0xc0de });
   });
 
-  it.each(['', '#', '#hex=', '#hex=zz', '#hex=10-', '#hex=20-10', '#hex=1-2-3', '#cpu=10000', '#disasm=-1', '#foo=10', '#cpu=FFFA&x=1', '#cpu=100:8000', '#disasm=:8000', '#disasm=03:', '#chr=01:0000'])(
+  it.each(['', '#', '#hex=', '#hex=zz', '#hex=10-', '#hex=20-10', '#hex=1-2-3', '#cpu=10000', '#disasm=-1', '#foo=10', '#cpu=FFFA&x=1', '#cpu=100:8000', '#disasm=:8000', '#disasm=03:', '#chr=01:0000', '#ppu=4000', '#ppu=02:'])(
     'rejects %s', (hash) => {
       expect(parseHash(hash)).toBeNull();
     });

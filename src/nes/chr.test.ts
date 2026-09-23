@@ -7,6 +7,7 @@ import {
 } from '../../tools/generate-test-rom.ts';
 import { chrBankCount, decodePatternTable, decodeTile, locateTile, tileAtChrOffset } from './chr.ts';
 import { parseRom } from './rom.ts';
+import { romWith } from './test-rom.ts';
 
 const load = (name: string) =>
   parseRom(new Uint8Array(readFileSync(new URL(`../../test-roms/${name}`, import.meta.url))));
@@ -81,7 +82,7 @@ describe('locateTile', () => {
   it('maps NROM CHR 8 KiB directly onto PPU $0000-$1FFF', () => {
     const rom = load('synthetic-nrom256.nes');
     expect(chrBankCount(rom)).toBe(1);
-    expect(locateTile(rom, 0, 0, 0)).toMatchObject({ chrOffset: 0, fileOffset: 0x8010, ppuAddress: 0x0000, available: true });
+    expect(locateTile(rom, 0, 0, 0)).toMatchObject({ chrOffset: 0, fileOffset: 0x8010, ppuAddress: 0x0000, ppuBank: null, available: true });
     expect(locateTile(rom, 0, 0, 10)).toMatchObject({ chrOffset: 0xa0, fileOffset: 0x80b0, ppuAddress: 0x00a0 });
     expect(locateTile(rom, 0, 1, 0)).toMatchObject({ chrOffset: 0x1000, fileOffset: 0x9010, ppuAddress: 0x1000 });
     expect(locateTile(rom, 0, 1, 255)).toMatchObject({ chrOffset: 0x1ff0, fileOffset: 0xa000, ppuAddress: 0x1ff0 });
@@ -104,6 +105,11 @@ describe('locateTile', () => {
     expect(locateTile(rom, 0, 0, 1).available).toBe(false);
   });
 
+  it('has no PPU address for a CHR-banking mapper that is not mapped yet (MMC1)', () => {
+    const rom = romWith({ prgKiB: 32, mapper: 1, chrKiB: 32, vectors: [0x8000, 0x8000, 0x8000] });
+    expect(locateTile(rom, 1, 0, 0)).toMatchObject({ chrOffset: 0x2000, ppuAddress: null, ppuBank: null });
+  });
+
   it('throws for a CHR-RAM cartridge', () => {
     expect(() => locateTile(load('synthetic-nrom256-chrram.nes'), 0, 0, 0)).toThrow();
   });
@@ -117,8 +123,9 @@ describe('synthetic-cnrom.nes (4 CHR banks)', () => {
     expect([0, 1, 2, 3].map((b) => locateTile(rom, b, 0, 0).fileOffset)).toEqual([0x8010, 0xa010, 0xc010, 0xe010]);
   });
 
-  it('does not claim a PPU address because CNROM switches CHR banks', () => {
-    expect(locateTile(rom, 0, 0, 0).ppuAddress).toBeNull();
+  it('gives the PPU address the tile has while its bank is switched in', () => {
+    expect(locateTile(rom, 2, 1, 12)).toMatchObject({ chrOffset: 0x50c0, fileOffset: 0x8010 + 0x50c0, ppuAddress: 0x10c0, ppuBank: 2 });
+    expect(locateTile(rom, 0, 0, 0)).toMatchObject({ ppuAddress: 0x0000, ppuBank: 0 });
   });
 
   it.each([0, 1, 2, 3])('bank %i shows its own digit marker in both pattern tables', (bank) => {

@@ -76,8 +76,18 @@ export function powerOnLastBank(mapper: number): PowerOnLastBank {
 
 /**
  * CHR-ROM が PPU $0000-$1FFF に固定で見えるか。
- * NROM で CHR 8 KiB のときだけ。CNROM は PRG は固定だが CHR を切り替えるため含めない。
+ * NROM (0) と UxROM (2) は CHR を bank 切り替えしない（UxROM が切り替えるのは PRG だけ）。
+ * CHR-ROM が 8 KiB でない場合の見え方は ppu-map.ts が警告付きで扱う。
  */
 export function hasFixedChr(header: NesHeader): boolean {
-  return header.mapper === 0 && header.chrRomSize === 8 * 1024;
+  return (header.mapper === 0 || header.mapper === 2) && header.chrRomSize > 0;
+}
+
+/**
+ * CHR を bank 切り替えするが、「どの bank を入れたか」を 1 つ決めれば PPU への対応が完全に決まる Mapper。
+ * CNROM (3) は PPU $0000-$1FFF の 8 KiB を丸ごと切り替えるだけなので、bank 番号 1 つで表せる。
+ * MMC1 / MMC3 は 4 KiB / 1 KiB 単位の複数のレジスタがあり、この形では表せないため含めない。
+ */
+export function hasSwitchableChr(mapper: number): boolean {
+  return mapper === 3;
 }

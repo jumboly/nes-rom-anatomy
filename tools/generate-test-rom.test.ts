@@ -104,6 +104,14 @@ describe('synthetic-cnrom.nes raw layout', () => {
     expect(hex(rom.subarray(0, 16))).toBe('4e 45 53 1a 02 04 31 00 00 00 00 00 00 00 00 00');
   });
 
+  it('starts PRG-ROM with the reset code that selects CHR bank 2 through the table, then bank 3 directly', () => {
+    // SEI / CLD / LDX #$FF / TXS / LDA #$00 / STA $2000 / STA $2001 / LDA #$02 / TAY / STA $FE00,Y / LDA #$03 / STA $FE03 / JMP $8018
+    expect(hex(rom.subarray(0x10, 0x10 + 27))).toBe('78 d8 a2 ff 9a a9 00 8d 00 20 8d 01 20 a9 02 a8 99 00 fe a9 03 8d 03 fe 4c 18 80');
+    // $FE00 = PRG +$7E00 = File $7E10。ベクタは NROM と同じ
+    expect(hex(rom.subarray(0x7e10, 0x7e15))).toBe('00 01 02 03 ff');
+    expect(hex(rom.subarray(0x800a, 0x8010))).toBe('00 81 00 80 00 82');
+  });
+
   it('puts a digit glyph for each CHR bank at tile 12 and tile 268', () => {
     // "1" のグリフ: plane 0 / plane 1 とも同じ（ピクセル値 3）
     const one = '18 38 18 18 18 18 7e 00';

@@ -238,6 +238,54 @@ describe('disassemble: UxROM', () => {
   });
 });
 
+/**
+ * CNROM (Mapper 3): PRG は固定で、$8000-$FFFF への書き込みが CHR bank の選択になる。
+ * synthetic-cnrom.nes のリセット処理は、表 ($FE00: 00 01 02 03) を使って bank 2 を選び、表の番地へ直接書いて bank 3 を選ぶ。
+ */
+describe('disassemble: CNROM', () => {
+  const rom = loadFixture('synthetic-cnrom.nes');
+  const CHR_NOTE = 'CNROM の CHR bank 選択: A の下位 2 bit の 8 KiB の CHR bank が PPU $0000-$1FFF に入る（ROM の中身は書き換わらない）。';
+
+  it('reads the reset code and explains both CHR bank writes', () => {
+    const lines = disassemble(rom, fixed(rom), 0x8000, 12).lines;
+    expect(lines.map((l) => l.text)).toEqual([
+      'SEI', 'CLD', 'LDX #$FF', 'TXS', 'LDA #$00', 'STA $2000', 'STA $2001', 'LDA #$02', 'TAY', 'STA $FE00,Y', 'LDA #$03', 'STA $FE03',
+    ]);
+    expect(lines[9]!.notes).toEqual([
+      CHR_NOTE,
+      '$FE00 からは 0, 1, 2… と並んだテーブル。bank 番号と同じ値を持つ番地に書くことで、bus conflict（書く値と ROM の値の衝突）を避ける定番の形。',
+    ]);
+    // PRG が固定なので、$8000-$BFFF の番地でも ROM の値が確定する（UxROM と違い $C000 以上に限らない）
+    expect(lines[11]!.notes).toEqual([CHR_NOTE, 'bus conflict のある基板では、書く値が $FE03 の ROM の値 ($03) と一致していないと結果が不定になる。']);
+    expect(lines[5]!.notes).toEqual(['PPUCTRL']);
+  });
+
+  it('checks the ROM value in the lower half of $8000-$FFFF too', () => {
+    const r = romWith({ prgKiB: 32, mapper: 3, chrKiB: 32, vectors: [0x8000, 0x8000, 0x8000], put: { 0: [0x8e, 0x10, 0x80], 0x10: [0x01] } });
+    expect(disassemble(r, fixed(r), 0x8000, 1).lines[0]!.notes).toEqual([
+      'CNROM の CHR bank 選択: X の下位 2 bit の 8 KiB の CHR bank が PPU $0000-$1FFF に入る（ROM の中身は書き換わらない）。',
+      'bus conflict のある基板では、書く値が $8010 の ROM の値 ($01) と一致していないと結果が不定になる。',
+    ]);
+  });
+
+  it('omits the bus conflict note for NES 2.0 submapper 1 (no bus conflicts)', () => {
+    const r = romWith({ prgKiB: 32, mapper: 3, chrKiB: 32, submapper: 1, vectors: [0x8000, 0x8000, 0x8000], put: { 0: [0x8d, 0x10, 0x80] } });
+    expect(disassemble(r, fixed(r), 0x8000, 1).lines[0]!.notes).toEqual([CHR_NOTE]);
+  });
+
+  it('a single-bank CNROM still has the register, but nothing changes', () => {
+    const r = romWith({ prgKiB: 32, mapper: 3, chrKiB: 8, submapper: 1, vectors: [0x8000, 0x8000, 0x8000], put: { 0: [0x8d, 0x10, 0x80] } });
+    expect(disassemble(r, fixed(r), 0x8000, 1).lines[0]!.notes).toEqual(['CNROM の CHR bank 選択レジスタへの書き込み（bank が 1 つしかないため、見える中身は変わらない）。']);
+  });
+
+  it('a 5-bank oversize CNROM uses 3 bits and checks a 5-entry table', () => {
+    const r = romWith({ prgKiB: 32, mapper: 3, chrKiB: 40, vectors: [0x8000, 0x8000, 0x8000], put: { 0: [0x9d, 0x00, 0x90], 0x1000: [0, 1, 2, 3, 4] } });
+    const notes = disassemble(r, fixed(r), 0x8000, 1).lines[0]!.notes;
+    expect(notes[0]).toBe('CNROM 互換（大容量） の CHR bank 選択: A の下位 3 bit の 8 KiB の CHR bank が PPU $0000-$1FFF に入る（ROM の中身は書き換わらない）。');
+    expect(notes[1]).toContain('$9000 からは 0, 1, 2…');
+  });
+});
+
 describe('disasmMapping', () => {
   it('fixed PRG mappers use the whole $8000-$FFFF mapping without a note', () => {
     const rom = loadFixture('synthetic-nrom128.nes');

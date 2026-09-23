@@ -30,8 +30,9 @@ export function fileSpan(bytes: readonly { fileOffset: number }[]): number {
 }
 
 /**
- * CPU アドレスの表記。UxROM の切り替え窓のアドレスは、どの bank を入れた場合かを "$03:8123" の形で添える
+ * CPU / PPU アドレスの表記。bank 切り替えで中身が変わるアドレス（UxROM の $8000-$BFFF、CNROM の PPU $0000-$1FFF）は、
+ * どの bank を入れた場合かを "$03:8123" の形で添える
  * （Mesen などのデバッガと同じ bank:address 表記。bank を書かないと、別 bank の同じアドレスと区別できないため）
  */
-export const cpuText = (cpu: number, bank?: number) =>
-  bank === undefined ? `$${hex(cpu, 4)}` : `$${hex(bank, 2)}:${hex(cpu, 4)}`;
+export const addrText = (address: number, bank?: number) =>
+  bank === undefined ? `$${hex(address, 4)}` : `$${hex(bank, 2)}:${hex(address, 4)}`;

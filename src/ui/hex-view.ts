@@ -1,6 +1,6 @@
 import { crossRef, type CpuRef } from '../nes/xref.ts';
 import { locateOffset, type NesRom } from '../nes/rom.ts';
-import { cpuText, el, hex } from './format.ts';
+import { addrText, el, hex } from './format.ts';
 import type { Navigator } from './nav.ts';
 import { REGION_LABEL } from './regions.ts';
 
@@ -39,7 +39,7 @@ export function createHexView(rom: NesRom, data: Uint8Array, nav: Navigator): HT
   };
 
   const links = (refs: CpuRef[], view: 'cpu' | 'disasm') =>
-    refs.flatMap((r, i) => [...(i ? [' / '] : []), nav.link({ view, ...r }, cpuText(r.cpu, r.bank))]);
+    refs.flatMap((r, i) => [...(i ? [' / '] : []), nav.link({ view, ...r }, addrText(r.cpu, r.bank))]);
 
   /** file offset → ほかの視点での位置。ファイルと CPU / PPU の両方の視点を同じ場所で見せ、そのまま移動できるようにする */
   function describe(offset: number): (Node | string)[] {
@@ -71,6 +71,15 @@ export function createHexView(rom: NesRom, data: Uint8Array, nav: Navigator): HT
       const text = `bank ${t.bank} / pattern table $${hex(t.patternTable * 0x1000, 4)} 側 / Tile $${hex(t.tileIndex, 2)} の ${t.row} 行目・plane ${t.plane}`;
       const loc = { view: 'chr', chrOffset: x.relative, highlight: true } as const;
       line('CHR: ', nav.canShow(loc) ? nav.link(loc, text) : text);
+      if (x.ppu === null) {
+        line(`PPU: Mapper ${rom.header.mapper} の bank 切り替え次第`);
+      } else if (x.ppu.length) {
+        const bank = x.ppu[0]!.bank;
+        line('PPU: ', ...x.ppu.flatMap((r, i) => [...(i ? [' / '] : []), nav.link({ view: 'ppu', ...r }, addrText(r.ppu, r.bank))]),
+          ...(bank === undefined ? [] : [`（$0000-$1FFF に bank ${bank} を入れたとき）`]));
+      } else {
+        line('PPU からは見えない');
+      }
     }
     return lines;
   }

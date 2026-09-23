@@ -2,7 +2,7 @@ import { bankRange, cpuMemoryMap, prgMapping, readCpu } from '../nes/cpu-map.ts'
 import { disasmMapping, disassemble, vectorLabels, type DisasmLine, type LabelLookup } from '../nes/disasm.ts';
 import type { NesRom } from '../nes/rom.ts';
 import { readVectors } from '../nes/vectors.ts';
-import { cpuText, el, fileSpan, hex } from './format.ts';
+import { addrText, el, fileSpan, hex } from './format.ts';
 import type { Navigator } from './nav.ts';
 
 /** 1 回に並べる命令数。線形逆アセンブルは先へ行くほどデータを読む可能性が上がるので、少なめに区切って続きを足す */
@@ -33,7 +33,7 @@ export function createDisasmView(rom: NesRom, nav: Navigator): HTMLElement {
     const sw = m.bankSwitch;
     return sw !== null && cpu >= sw.cpuStart && cpu < sw.cpuStart + sw.size;
   };
-  const cpuLabel = (cpu: number) => cpuText(cpu, inSwitch(cpu) ? bank() : undefined);
+  const cpuLabel = (cpu: number) => addrText(cpu, inSwitch(cpu) ? bank() : undefined);
 
   const input = el('input', { type: 'text', class: 'mono', size: '8' });
   const form = el('form', { class: 'hex-goto' }, 'CPU address: $', input, el('button', { type: 'submit' }, '逆アセンブル'));
