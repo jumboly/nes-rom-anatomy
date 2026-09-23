@@ -1,10 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseRom, type NesRom } from './rom.ts';
+import { loadFixture as load, romWith } from './test-rom.ts';
 import { readVectors, vectorLabelsAt, type VectorTable } from './vectors.ts';
-
-const load = (name: string) =>
-  parseRom(new Uint8Array(readFileSync(new URL(`../../test-roms/${name}`, import.meta.url))));
 
 function vectorsOf(rom: NesRom): VectorTable {
   const t = readVectors(rom);
@@ -12,34 +9,6 @@ function vectorsOf(rom: NesRom): VectorTable {
   return t;
 }
 const targets = (t: VectorTable) => t.entries.map((e) => e.target?.cpu);
-
-/**
- * PRG の末尾 6 byte にベクタを置いた最小 ROM。
- * fixture に無い Mapper・サイズ・飛び先の組み合わせを、ファイル上の位置を手で決めて作るため。
- * put は PRG offset → byte 列。
- */
-function romWith(opts: {
-  prgKiB: number;
-  mapper?: number;
-  trainer?: boolean;
-  vectors: [nmi: number, reset: number, irq: number];
-  put?: Record<number, number[]>;
-  truncateTo?: number;
-}): NesRom {
-  const h = new Uint8Array(16);
-  h.set([0x4e, 0x45, 0x53, 0x1a]);
-  const mapper = opts.mapper ?? 0;
-  h[4] = opts.prgKiB / 16;
-  h[6] = ((mapper & 0x0f) << 4) | (opts.trainer ? 0x04 : 0);
-  h[7] = mapper & 0xf0;
-  const prg = new Uint8Array(opts.prgKiB * 1024).fill(0xff);
-  for (const [offset, bytes] of Object.entries(opts.put ?? {})) prg.set(bytes, Number(offset));
-  const v = prg.length - 6;
-  opts.vectors.forEach((addr, i) => prg.set([addr & 0xff, addr >> 8], v + i * 2));
-  const trainer = new Uint8Array(opts.trainer ? 512 : 0);
-  const data = new Uint8Array([...h, ...trainer, ...prg]);
-  return parseRom(opts.truncateTo ? data.subarray(0, opts.truncateTo) : data);
-}
 
 describe('synthetic fixtures (NMI $8100, RESET $8000, IRQ $8200)', () => {
   it('NROM-256: reads the vectors at file $800A-$800F', () => {

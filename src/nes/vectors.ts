@@ -18,7 +18,7 @@ export const VECTORS: readonly { name: VectorName; cpu: number; when: string }[]
   { name: 'IRQ', cpu: 0xfffe, when: 'IRQ（Mapper・APU のフレームカウンタ・DMC）と BRK 命令で共用。' },
 ];
 
-/** ベクタの飛び先で先頭から何 byte 見せるか。逆アセンブラ (Phase 5) までは生の byte で最初の数命令を見せる */
+/** ベクタの飛び先で先頭から何 byte 読んでおくか。命令としての表示は disasm.ts が行い、ここでは生の byte として持つ */
 const TARGET_PREVIEW = 16;
 
 /**
@@ -120,7 +120,7 @@ function describeTarget(rom: NesRom, m: PrgMapping, cpu: number): VectorTarget {
 }
 
 /**
- * 飛び先から分かる注意点。逆アセンブラは Phase 5 なので、ここでは
+ * 飛び先から分かる注意点。命令列の表示は disasm.ts に任せ、ここではベクタとして
  * 「よくある形」と「ありえない形」を見分けるための最小限の判定だけを行う。
  */
 function notesFor(name: VectorName, raw: [number, number], t: VectorTarget): string[] {
@@ -156,7 +156,7 @@ function notesFor(name: VectorName, raw: [number, number], t: VectorTarget): str
       notes.push('レジスタや未接続の領域を指しており、ここからコードは実行できない。ベクタ未使用かデータ誤りの可能性。');
   }
 
-  // 6502 の命令を 1 byte だけ見る。Phase 5 の逆アセンブラが入るまでの目安
+  // RTI / SEI はどちらも 1 byte 命令なので、先頭 byte だけで定番の形か判定できる
   const first = t.preview[0];
   if (t.hit && first === 0x40 && name !== 'RESET') {
     notes.push('先頭が RTI ($40)。何もせずに戻るだけのハンドラで、この割り込みは使っていないと考えられる。');

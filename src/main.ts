@@ -3,6 +3,7 @@ import { parseRom } from './nes/rom.ts';
 import { mapperName } from './nes/mapper.ts';
 import { renderChrView } from './ui/chr-view.ts';
 import { renderCpuView } from './ui/cpu-view.ts';
+import { createDisasmView } from './ui/disasm-view.ts';
 import { el, formatSize } from './ui/format.ts';
 import { renderHeader } from './ui/header-view.ts';
 import { createHexView } from './ui/hex-view.ts';
@@ -23,11 +24,12 @@ function show(name: string, data: Uint8Array) {
     const rom = parseRom(data);
     const h = rom.header;
     const hexView = createHexView(rom, data);
+    const disasmView = createDisasmView(rom, hexView.jumpTo);
     const summary = el('div', { class: 'summary' },
       el('strong', {}, name), ' ',
       [h.format, `Mapper ${h.mapper}${mapperName(h.mapper) ? ` (${mapperName(h.mapper)})` : ''}`, `PRG ${formatSize(h.prgRomSize)}`,
         h.chrRomSize ? `CHR ${formatSize(h.chrRomSize)}` : 'CHR-RAM'].join(' | '));
-    app.replaceChildren(summary, renderHeader(h), renderLayout(rom, hexView.jumpTo), renderCpuView(rom, hexView.jumpTo), renderVectorView(rom, hexView.jumpTo), renderChrView(rom, hexView.jumpTo), hexView.element);
+    app.replaceChildren(summary, renderHeader(h), renderLayout(rom, hexView.jumpTo), renderCpuView(rom, hexView.jumpTo), renderVectorView(rom, hexView.jumpTo, disasmView.showAt), disasmView.element, renderChrView(rom, hexView.jumpTo), hexView.element);
     document.title = `${name} — NES ROM Anatomy`;
   } catch (e) {
     const msg = e instanceof HeaderError ? e.message : `解析中にエラーが発生しました: ${String(e)}`;

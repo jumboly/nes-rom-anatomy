@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { decodePatternTable, locateTile } from './chr.ts';
 import { prgMapping, prgToCpu, readCpu } from './cpu-map.ts';
+import { disassemble, vectorLabels } from './disasm.ts';
 import { parseRom, type NesRom } from './rom.ts';
 import { readVectors } from './vectors.ts';
 
@@ -37,6 +38,9 @@ const nromTemplate128 = loadExternal('nrom-template.nes', NROM_TEMPLATE_128_SHA2
 
 const NESTEST_SHA256 = 'f67d55fd6b3cf0bad1cc85f1df0d739c65b53e79cecb7fea8f77ec0eadab0004';
 const nestest = loadExternal('nestest.nes', NESTEST_SHA256);
+// nestest.log は nestest.nes を自動モード ($C000 から) で実行したときの、命令ごとの CPU トレース
+const NESTEST_LOG_SHA256 = '627c8e180b1a924dfa705c5dc6958fad7ab75a62de556173caf880ccc1337540';
+const nestestLog = loadExternal('nestest.log', NESTEST_LOG_SHA256);
 
 describe.skipIf(!nestest)('nestest.nes (NROM-128)', () => {
   const rom = parseRom(nestest!);
@@ -178,5 +182,87 @@ describe.skipIf(!nromTemplate256 || !chrIdx)('nrom-template256.nes CHR vs. sourc
 
   it('maps CHR directly onto PPU addresses (NROM, CHR 8 KiB)', () => {
     expect(locateTile(rom, 0, 1, 0)).toMatchObject({ fileOffset: 0x9010, ppuAddress: 0x1000 });
+  });
+});
+
+/**
+ * nestest.log の各行 "C000  4C F5 C5  JMP $C5F5   A:00 ..." を PC・命令 byte・命令テキストに分ける。
+ * トレースは実際に実行された命令なので、命令の区切りが確実に正しい（線形逆アセンブルの正解に使える）。
+ */
+function parseNestestLog(text: string) {
+  return text.split(/\r?\n/).filter((l) => l.length > 48).map((l) => ({
+    pc: parseInt(l.slice(0, 4), 16),
+    bytes: l.slice(6, 14).trim().split(' ').map((b) => parseInt(b, 16)),
+    // 16 桁目の '*' は非公式命令の印。" = 00" や " @ 80" は実行時の値なので、逆アセンブル結果とは比べない
+    unofficial: l[15] === '*',
+    text: l.slice(16, 48).replace(/ (=|@) .*$/, '').trim(),
+  }));
+}
+
+/** nestest.log と表記が違う mnemonic（nestest は ISC を ISB と書く） */
+const NESTEST_MNEMONIC: Record<string, string> = { ISC: 'ISB' };
+
+describe.skipIf(!nestest || !nestestLog)('nestest.nes disassembly vs. nestest.log', () => {
+  const rom = parseRom(nestest!);
+  const m = prgMapping(rom)!;
+  const trace = parseNestestLog(new TextDecoder().decode(nestestLog!));
+
+  it('parses the whole trace', () => {
+    expect(trace).toHaveLength(8991);
+    expect(trace[0]).toEqual({ pc: 0xc000, bytes: [0x4c, 0xf5, 0xc5], unofficial: false, text: 'JMP $C5F5' });
+  });
+
+  // 8991 行を 1 件ずつ it にすると遅く読みにくいため、ずれた行だけを集めて空であることを見る
+  it('decodes every traced instruction to the same bytes, text and official/unofficial flag', () => {
+    const mismatches: string[] = [];
+    const seen = new Set<string>();
+    // nestest は JMP ($0200) の検査のために RAM $0300 へ書いたコード（LDA #$AA / RTS）も実行する。
+    // RAM の中身は ROM から決まらないので、照合できるのは PRG-ROM 上の命令だけ
+    const inRom = trace.filter((t) => t.pc >= 0x8000);
+    expect(trace.length - inRom.length).toBe(2);
+    for (const t of inRom) {
+      const [line] = disassemble(rom, m, t.pc, 1).lines;
+      const text = line!.op ? line!.text.replace(/^[A-Z]+/, (mn) => NESTEST_MNEMONIC[mn] ?? mn) : line!.text;
+      const actual = { bytes: line!.bytes.map((b) => b.value), unofficial: !line!.op?.official, text };
+      const expected = { bytes: t.bytes, unofficial: t.unofficial, text: t.text };
+      if (JSON.stringify(actual) !== JSON.stringify(expected)) mismatches.push(`${t.pc.toString(16)}: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`);
+      seen.add(`${line!.op?.mnemonic} ${line!.op?.mode}`);
+    }
+    expect(mismatches).toEqual([]);
+    // 照合が形だけで終わっていないことの確認: トレースには公式・非公式を合わせて多くの種類の命令が現れる
+    expect(seen.size).toBeGreaterThan(200);
+  });
+
+  it('disassembles linearly from $C000 along the traced start (JMP $C5F5 then data-free code)', () => {
+    const d = disassemble(rom, m, 0xc5f5, 4);
+    expect(d.lines.map((l) => l.text)).toEqual(trace.slice(1, 5).map((t) => t.text));
+  });
+});
+
+/**
+ * nrom-template の reset_handler（src/init.s）を手で書き下した期待値。
+ * PPUCTRL = $2000, PPUMASK = $2001, PPUSTATUS = $2002, SNDCHN = $4015, P2 = $4017（src/nes.inc）。
+ * NROM-256 版は $8000、NROM-128 版は $C000 にリンクされている（map256.txt / map.txt）。
+ */
+const resetHandler = (base: number) => [
+  'SEI', 'LDX #$00', 'STX $2000', 'STX $2001', 'STX $4010', 'DEX', 'TXS', 'BIT $2002', 'BIT $4015',
+  'LDA #$40', 'STA $4017', 'LDA #$0F', 'STA $4015',
+  // vwait1: bit PPUSTATUS / bpl vwait1
+  'BIT $2002', `BPL $${(base + 0x1e).toString(16).toUpperCase()}`, 'CLD',
+];
+
+describe.each([
+  ['nrom-template256.nes', () => nromTemplate256, 0x8000],
+  ['nrom-template.nes', () => nromTemplate128, 0xc000],
+] as const)('%s disassembly vs. src/init.s', (_name, data, base) => {
+  it.skipIf(!data())('disassembles reset_handler from the RESET vector', () => {
+    const rom = parseRom(data()!);
+    const lines = disassemble(rom, prgMapping(rom)!, base, 16, vectorLabels(readVectors(rom))).lines;
+    expect(lines.map((l) => l.text)).toEqual(resetHandler(base));
+    expect(lines[0]!.labels).toEqual(['RESET']);
+    expect(lines[0]!.bytes[0]!.fileOffset).toBe(0x0010);
+    expect(lines[2]!.notes).toEqual(['PPUCTRL']);
+    // vwait1 ループの分岐先は、その直前の BIT PPUSTATUS
+    expect(lines[14]!.target).toBe(lines[13]!.cpu);
   });
 });

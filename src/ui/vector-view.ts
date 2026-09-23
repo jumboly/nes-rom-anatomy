@@ -1,9 +1,13 @@
 import type { CpuByte } from '../nes/cpu-map.ts';
+import { disassemble } from '../nes/disasm.ts';
 import type { NesRom } from '../nes/rom.ts';
 import { readVectors, type VectorEntry, type VectorTable } from '../nes/vectors.ts';
 import { el, hex } from './format.ts';
 
 const addr = (v: number) => `$${hex(v, 4)}`;
+
+/** 飛び先で見せる命令数。ハンドラの書き出し（割り込み禁止・レジスタ退避など）が分かる程度 */
+const TARGET_INSTRUCTIONS = 4;
 
 const BASIS_LABEL: Record<VectorTable['basis'], string> = {
   fixed: '確定',
@@ -42,7 +46,7 @@ function renderVectorBytes(t: VectorTable, onJump: (fileOffset: number) => void)
   return strip;
 }
 
-function renderEntry(e: VectorEntry, onJump: (fileOffset: number) => void): HTMLElement {
+function renderEntry(rom: NesRom, table: VectorTable, e: VectorEntry, onJump: (fileOffset: number) => void, onDisasm: (cpu: number) => void): HTMLElement {
   const rows: HTMLTableRowElement[] = [];
   const row = (k: string, ...v: (Node | string)[]) => rows.push(el('tr', {}, el('th', {}, k), el('td', {}, ...v)));
 
@@ -60,15 +64,19 @@ function renderEntry(e: VectorEntry, onJump: (fileOffset: number) => void): HTML
       row('File offset', fileLink(t.hit.fileOffset, onJump));
       if (t.aliases.length > 1) row('ミラー', el('span', { class: 'mono' }, t.aliases.map(addr).join(' / ')));
     }
-    // 飛び先から CPU アドレス順に並べる。Phase 5 の逆アセンブラまでは「最初の数命令の生 byte」として見せる
-    if (t.preview.some((v) => v !== null)) {
-      const bytes = el('div', { class: 'cpu-bytes mono' });
-      t.preview.forEach((v, i) => {
-        const cell = el('span', { title: `CPU ${addr(t.cpu + i)}` }, v === null ? '--' : hex(v, 2));
-        if (t.hit && v !== null) cell.addEventListener('click', () => onJump(t.hit!.fileOffset + i));
-        bytes.append(cell);
-      });
-      row('先頭 16 byte', bytes);
+    // 飛び先の最初の数命令。ベクタを読んだのと同じ対応で逆アセンブルするので、固定 bank の外なら何も出ない
+    if (t.hit) {
+      const lines = disassemble(rom, table.mapping, t.cpu, TARGET_INSTRUCTIONS).lines;
+      const list = el('div', { class: 'vector-code mono' });
+      for (const l of lines) {
+        const a = el('a', { href: '#hex-view', title: `File $${hex(l.bytes[0]!.fileOffset, 6)} — クリックで Hex へ` },
+          `${addr(l.cpu)}  ${l.bytes.map((b) => hex(b.value!, 2)).join(' ').padEnd(8)}  ${l.text}`);
+        a.addEventListener('click', (ev) => { ev.preventDefault(); onJump(l.bytes[0]!.fileOffset); });
+        list.append(a);
+      }
+      const open = el('button', { type: 'button' }, '逆アセンブル表示で開く');
+      open.addEventListener('click', () => onDisasm(t.cpu));
+      row('先頭の命令', list, open);
     }
   }
 
@@ -79,7 +87,7 @@ function renderEntry(e: VectorEntry, onJump: (fileOffset: number) => void): HTML
     ...(e.notes.length ? [el('ul', { class: 'vector-notes' }, ...e.notes.map((n) => el('li', {}, n)))] : []));
 }
 
-export function renderVectorView(rom: NesRom, onJump: (fileOffset: number) => void): HTMLElement {
+export function renderVectorView(rom: NesRom, onJump: (fileOffset: number) => void, onDisasm: (cpu: number) => void): HTMLElement {
   const section = el('section', { class: 'card', id: 'vector-view' }, el('h2', {}, 'Vectors（リセット・割り込みの入口）'));
   const t = readVectors(rom);
   if (!t) {
@@ -92,7 +100,7 @@ export function renderVectorView(rom: NesRom, onJump: (fileOffset: number) => vo
     el('p', {}, el('span', { class: `vector-basis vector-basis-${t.basis}` }, BASIS_LABEL[t.basis]), ' ', t.explanation),
     ...t.warnings.map((w) => el('p', { class: 'warning' }, `⚠ ${w}`)),
     renderVectorBytes(t, onJump),
-    el('div', { class: 'vector-entries' }, ...t.entries.map((e) => renderEntry(e, onJump))),
+    el('div', { class: 'vector-entries' }, ...t.entries.map((e) => renderEntry(rom, t, e, onJump, onDisasm))),
   );
   return section;
 }

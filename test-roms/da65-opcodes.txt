@@ -1,0 +1,257 @@
+# da65 V2.18 - N/A --cpu 6502x / operand bytes $34 $12 at $8000 (tools/gen-opcode-golden.sh)
+00 1 brk
+01 2 ora ($34,x)
+02 1 jam
+03 2 slo ($34,x)
+04 2 nop $34
+05 2 ora $34
+06 2 asl $34
+07 2 slo $34
+08 1 php
+09 2 ora #$34
+0A 1 asl a
+0B 2 anc #$34
+0C 3 nop $1234
+0D 3 ora $1234
+0E 3 asl $1234
+0F 3 slo $1234
+10 2 bpl $8036
+11 2 ora ($34),y
+12 1 jam
+13 2 slo ($34),y
+14 2 nop $34,x
+15 2 ora $34,x
+16 2 asl $34,x
+17 2 slo $34,x
+18 1 clc
+19 3 ora $1234,y
+1A 1 nop
+1B 3 slo $1234,y
+1C 3 nop $1234,x
+1D 3 ora $1234,x
+1E 3 asl $1234,x
+1F 3 slo $1234,x
+20 3 jsr $1234
+21 2 and ($34,x)
+22 1 jam
+23 2 rla ($34,x)
+24 2 bit $34
+25 2 and $34
+26 2 rol $34
+27 2 rla $34
+28 1 plp
+29 2 and #$34
+2A 1 rol a
+2B 2 anc #$34
+2C 3 bit $1234
+2D 3 and $1234
+2E 3 rol $1234
+2F 3 rla $1234
+30 2 bmi $8036
+31 2 and ($34),y
+32 1 jam
+33 2 rla ($34),y
+34 2 nop $34,x
+35 2 and $34,x
+36 2 rol $34,x
+37 2 rla $34,x
+38 1 sec
+39 3 and $1234,y
+3A 1 nop
+3B 3 rla $1234,y
+3C 3 nop $1234,x
+3D 3 and $1234,x
+3E 3 rol $1234,x
+3F 3 rla $1234,x
+40 1 rti
+41 2 eor ($34,x)
+42 1 jam
+43 2 sre ($34,x)
+44 2 nop $34
+45 2 eor $34
+46 2 lsr $34
+47 2 sre $34
+48 1 pha
+49 2 eor #$34
+4A 1 lsr a
+4B 2 alr #$34
+4C 3 jmp $1234
+4D 3 eor $1234
+4E 3 lsr $1234
+4F 3 sre $1234
+50 2 bvc $8036
+51 2 eor ($34),y
+52 1 jam
+53 2 sre ($34),y
+54 2 nop $34,x
+55 2 eor $34,x
+56 2 lsr $34,x
+57 2 sre $34,x
+58 1 cli
+59 3 eor $1234,y
+5A 1 nop
+5B 3 sre $1234,y
+5C 3 nop $1234,x
+5D 3 eor $1234,x
+5E 3 lsr $1234,x
+5F 3 sre $1234,x
+60 1 rts
+61 2 adc ($34,x)
+62 1 jam
+63 2 rra ($34,x)
+64 2 nop $34
+65 2 adc $34
+66 2 ror $34
+67 2 rra $34
+68 1 pla
+69 2 adc #$34
+6A 1 ror a
+6B 2 arr #$34
+6C 3 jmp ($1234)
+6D 3 adc $1234
+6E 3 ror $1234
+6F 3 rra $1234
+70 2 bvs $8036
+71 2 adc ($34),y
+72 1 jam
+73 2 rra ($34),y
+74 2 nop $34,x
+75 2 adc $34,x
+76 2 ror $34,x
+77 2 rra $34,x
+78 1 sei
+79 3 adc $1234,y
+7A 1 nop
+7B 3 rra $1234,y
+7C 3 nop $1234,x
+7D 3 adc $1234,x
+7E 3 ror $1234,x
+7F 3 rra $1234,x
+80 2 nop #$34
+81 2 sta ($34,x)
+82 2 nop #$34
+83 2 sax ($34,x)
+84 2 sty $34
+85 2 sta $34
+86 2 stx $34
+87 2 sax $34
+88 1 dey
+89 2 nop #$34
+8A 1 txa
+8B 2 xaa #$34
+8C 3 sty $1234
+8D 3 sta $1234
+8E 3 stx $1234
+8F 3 sax $1234
+90 2 bcc $8036
+91 2 sta ($34),y
+92 1 jam
+93 2 ahx ($34),y
+94 2 sty $34,x
+95 2 sta $34,x
+96 2 stx $34,y
+97 2 sax $34,y
+98 1 tya
+99 3 sta $1234,y
+9A 1 txs
+9B 3 tas $1234,y
+9C 3 shy $1234,x
+9D 3 sta $1234,x
+9E 3 shx $1234,y
+9F 3 ahx $1234,y
+A0 2 ldy #$34
+A1 2 lda ($34,x)
+A2 2 ldx #$34
+A3 2 lax ($34,x)
+A4 2 ldy $34
+A5 2 lda $34
+A6 2 ldx $34
+A7 2 lax $34
+A8 1 tay
+A9 2 lda #$34
+AA 1 tax
+AB 2 lax #$34
+AC 3 ldy $1234
+AD 3 lda $1234
+AE 3 ldx $1234
+AF 3 lax $1234
+B0 2 bcs $8036
+B1 2 lda ($34),y
+B2 1 jam
+B3 2 lax ($34),y
+B4 2 ldy $34,x
+B5 2 lda $34,x
+B6 2 ldx $34,y
+B7 2 lax $34,y
+B8 1 clv
+B9 3 lda $1234,y
+BA 1 tsx
+BB 3 las $1234,y
+BC 3 ldy $1234,x
+BD 3 lda $1234,x
+BE 3 ldx $1234,y
+BF 3 lax $1234,y
+C0 2 cpy #$34
+C1 2 cmp ($34,x)
+C2 2 nop #$34
+C3 2 dcp ($34,x)
+C4 2 cpy $34
+C5 2 cmp $34
+C6 2 dec $34
+C7 2 dcp $34
+C8 1 iny
+C9 2 cmp #$34
+CA 1 dex
+CB 2 axs #$34
+CC 3 cpy $1234
+CD 3 cmp $1234
+CE 3 dec $1234
+CF 3 dcp $1234
+D0 2 bne $8036
+D1 2 cmp ($34),y
+D2 1 jam
+D3 2 dcp ($34),y
+D4 2 nop $34,x
+D5 2 cmp $34,x
+D6 2 dec $34,x
+D7 2 dcp $34,x
+D8 1 cld
+D9 3 cmp $1234,y
+DA 1 nop
+DB 3 dcp $1234,y
+DC 3 nop $1234,x
+DD 3 cmp $1234,x
+DE 3 dec $1234,x
+DF 3 dcp $1234,x
+E0 2 cpx #$34
+E1 2 sbc ($34,x)
+E2 2 nop #$34
+E3 2 isc ($34,x)
+E4 2 cpx $34
+E5 2 sbc $34
+E6 2 inc $34
+E7 2 isc $34
+E8 1 inx
+E9 2 sbc #$34
+EA 1 nop
+EB 2 sbc #$34
+EC 3 cpx $1234
+ED 3 sbc $1234
+EE 3 inc $1234
+EF 3 isc $1234
+F0 2 beq $8036
+F1 2 sbc ($34),y
+F2 1 jam
+F3 2 isc ($34),y
+F4 2 nop $34,x
+F5 2 sbc $34,x
+F6 2 inc $34,x
+F7 2 isc $34,x
+F8 1 sed
+F9 3 sbc $1234,y
+FA 1 nop
+FB 3 isc $1234,y
+FC 3 nop $1234,x
+FD 3 sbc $1234,x
+FE 3 inc $1234,x
+FF 3 isc $1234,x

@@ -14,7 +14,7 @@ ROM file offset → CHR bank → Mapper → PPU address → 8x8 tile
 
 ROM ファイルはブラウザ内だけで解析され、サーバーへは送信されません。
 
-## 現在の機能（Phase 1–4）
+## 現在の機能（Phase 1–5）
 
 - iNES / NES 2.0 ヘッダ解析（Mapper, Submapper, PRG/CHR-ROM, PRG/CHR-(NV)RAM, Mirroring, Battery, Trainer, Console type, Timing ほか）
 - Raw header の byte ごとの意味表示
@@ -30,11 +30,14 @@ ROM ファイルはブラウザ内だけで解析され、サーバーへは送�
 - Hex Viewer で PRG の byte を選ぶと、その byte が見える CPU address も表示
 - RESET / NMI / IRQ ベクタ: `$FFFA-$FFFF` の 6 byte（little endian の読み方）、ベクタと飛び先の PRG offset / File offset、飛び先の先頭 16 byte、よくある形・ありえない形の注記（RTI だけの IRQ、RAM・Trainer・レジスタを指すベクタ、未設定の `$FFFF` など）
 - bank 切り替えのある Mapper のベクタは末尾 bank から読む（UxROM / MMC3 は配線で確定、それ以外は「推定」と明示）
+- 6502 (Ricoh 2A03) 線形逆アセンブラ: CPU アドレスから命令を順に読む。CPU address / File offset / byte 列 / 命令、非公式命令（斜体）・JAM・`.byte` の区別、PPU / APU / I/O レジスタ名、分岐・JMP・JSR の飛び先をたどる（戻る付き）、RESET / NMI / IRQ から開始
+- ベクタの飛び先に最初の数命令を逆アセンブルして表示し、逆アセンブル表示へ移動
 
 PPU address は、Mapper を介さずに決まる場合（Mapper 0 かつ CHR 8 KiB）だけ表示します。
 CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM）で表示します。
 それ以外は bank 切り替え次第なので、対応するまでは「未対応」と表示します。
 ベクタだけは、電源投入時に CPU 空間の末尾に見える bank が分かれば読めるため、bank 切り替えのある Mapper でも表示します。
+逆アセンブルも同じ理由で、bank 切り替えのある Mapper では末尾 bank の範囲だけを対象にします。
 
 ## 対応フォーマット
 
@@ -47,6 +50,7 @@ CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM�
 - ヘッダ解析・ファイル構造表示: すべての Mapper 番号
 - CPU アドレス対応: Mapper 0 (NROM), Mapper 3 (CNROM, PRG のみ)
 - ベクタ: すべての Mapper（Mapper 0 / 3 は確定、2 / 4 は固定 bank で確定、その他は末尾 bank と仮定した推定）
+- 逆アセンブル: Mapper 0 / 3 は $8000-$FFFF 全体、その他はベクタと同じ末尾 bank の範囲
 - PPU アドレス対応: Mapper 0 (NROM, CHR 8 KiB)
 
 ## 今後の予定
@@ -56,7 +60,7 @@ CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM�
 | 2 | CHR-ROM Pattern Table Viewer / Tile Inspector / CHR-RAM 表示（済） |
 | 3 | PRG-ROM ↔ CPU アドレス空間 (NROM-128 ミラー / NROM-256)（済） |
 | 4 | RESET / NMI / IRQ ベクタ（済） |
-| 5 | 6502 (Ricoh 2A03) 線形逆アセンブラ |
+| 5 | 6502 (Ricoh 2A03) 線形逆アセンブラ（済） |
 | 6 | ビュー間の相互ナビゲーション |
 | 7 | Mapper 2 (UxROM) の PRG バンク切り替え可視化 |
 | 8 | Mapper 3 (CNROM) の CHR バンク切り替え可視化 |
@@ -72,6 +76,7 @@ npm test           # unit tests (vitest)
 npm run typecheck
 npm run gen:roms   # test-roms/synthetic-*.nes を再生成
 ./tools/build-nrom-template.sh  # 実在 Homebrew ROM を test-roms/external/ にビルド（任意）
+./tools/gen-opcode-golden.sh    # test-roms/da65-opcodes.txt（opcode 表の正解）を da65 で再生成（任意）
 ```
 
 構成:
@@ -89,6 +94,7 @@ test-roms/                   テスト ROM（説明は test-roms/README.md）
 
 1. **Synthetic ROM**（同梱）: `tools/generate-test-rom.ts` で生成する自作 ROM。ヘッダ・コード・ベクタ・CHR タイルの期待値がすべて既知
 2. **実在 Homebrew ROM**: [pinobatch/nrom-template](https://github.com/pinobatch/nrom-template)（GNU All-Permissive）を固定コミットからビルドして使用（`tools/build-nrom-template.sh`）
-3. **nestest.nes**: CPU テスト ROM (NROM-128)。再配布条件が明示されていないため **同梱せず**、取得方法のみ記載
+3. **nestest.nes / nestest.log**: CPU テスト ROM (NROM-128) と実行トレース。再配布条件が明示されていないため **同梱せず**、取得方法のみ記載
+4. **da65 の出力**: 256 個の opcode を cc65 付属の逆アセンブラ da65 に逆アセンブルさせた結果（`test-roms/da65-opcodes.txt`）。opcode 表の正解
 
 著作権のある市販 ROM は扱いません。詳細は [test-roms/README.md](test-roms/README.md)。

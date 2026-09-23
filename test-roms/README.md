@@ -52,6 +52,17 @@ PRG-ROM の内容はすべて同じ（CHR-RAM 版も、CHR-RAM へタイルを�
 上の表は bank 0 の内容。`synthetic-cnrom.nes` の bank 1〜3 は tile 12 / 268 の数字グリフ（`1`〜`3`）だけを持ち、他はすべて 0。
 bank を取り違えると、テストタイルが見えるかどうかと数字の両方で気付ける。
 
+## 同梱: opcode 表の正解（da65）
+
+`da65-opcodes.txt` は `tools/gen-opcode-golden.sh` が、256 個の opcode それぞれを
+da65（cc65 付属の逆アセンブラ, `--cpu 6502x`）に逆アセンブルさせた結果。
+各 opcode の後ろに operand `$34 $12` を置き、先頭を CPU `$8000` として 1 opcode ずつ別に処理している
+（1 本の byte 列に並べると、命令長の違いで区切りがずれるため）。
+
+`src/nes/opcodes.test.ts` が、自前の opcode 表（mnemonic・addressing mode・命令長）をこれと 1 件ずつ照合する。
+手で写した表を自分自身と比べても写し間違いは見つからないため、独立な実装の出力を正解にしている。
+非公式命令の名前も da65 に合わせた（nestest.log は `ISC` を `ISB` と書くなど、表記揺れがある）。
+
 ## 非同梱: 外部 ROM
 
 `test-roms/external/` に置くと `src/nes/external-roms.test.ts` が実行される（無ければ skip）。
@@ -60,15 +71,22 @@ bank を取り違えると、テストタイルが見えるかどうかと数字
 | ROM | 入手先 | SHA-256 | 期待値 |
 | --- | --- | --- | --- |
 | `nestest.nes` | https://www.qmtpro.com/~nes/misc/nestest.nes (kevtris) | `f67d55fd6b3cf0bad1cc85f1df0d739c65b53e79cecb7fea8f77ec0eadab0004` | iNES, Mapper 0, PRG 16 KiB, CHR 8 KiB, horizontal |
+| `nestest.log` | https://www.qmtpro.com/~nes/misc/nestest.log (kevtris) | `627c8e180b1a924dfa705c5dc6958fad7ab75a62de556173caf880ccc1337540` | 8991 行の実行トレース（逆アセンブルの正解） |
 | `nrom-template256.nes` | `tools/build-nrom-template.sh` でビルド | `217dab9800641fe6bdd221eb7cc7b3abc988db600530283430cd56bb77cf97ac` | iNES, Mapper 0, PRG 32 KiB, CHR 8 KiB, horizontal |
 | `nrom-template.nes` | 同上 | `b30dce8d2f816d712edbaa3660d01203122d7ef70079ff1158534a5ac5607745` | iNES, Mapper 0, PRG 16 KiB, CHR 8 KiB, horizontal |
 
 nestest は再配布条件が明示されていないため同梱しない。
 
+`nestest.log` は nestest.nes を `$C000` から自動モードで実行したときの、1 命令ごとの CPU トレース
+（`C000  4C F5 C5  JMP $C5F5  A:00 X:00 ...`）。実際に実行された命令なので命令の区切りが確実に正しく、
+非公式命令（`*NOP`, `*LAX`, `*DCP` など）も含む。`src/nes/external-roms.test.ts` は、
+トレースの PC から 1 命令ずつ逆アセンブルし、byte 列・命令テキスト・公式/非公式の区別がすべての行で一致することを確かめる
+（RAM `$0300` で実行される 2 行だけは ROM に無いため除く）。
+
 ### nrom-template（実在 Homebrew, NROM-256 / NROM-128）
 
 [pinobatch/nrom-template](https://github.com/pinobatch/nrom-template)（Damian Yerrick, GNU All-Permissive License）。
-ca65 アセンブリのソースがあり、逆アセンブル結果との比較（Phase 5）に使える。
+ca65 アセンブリのソースがあり、逆アセンブル結果との比較に使っている（`src/init.s` の reset_handler を手で書き下した命令列と照合）。
 
 ```sh
 brew install cc65          # ca65 / ld65

@@ -104,7 +104,7 @@ function renderMemoryMap(areas: CpuArea[]): HTMLElement {
 
 /**
  * CPU アドレスを入力すると、そこに見える PRG の byte とファイル上の位置を示す。
- * 逆アセンブラ（Phase 5）が無い段階でも「CPU から見た ROM」を覗けるよう、16 byte 分を並べる。
+ * 命令として読む逆アセンブル表示とは別に、生の byte のまま「CPU から見た ROM」を覗けるよう 16 byte 分を並べる。
  */
 function renderLookup(rom: NesRom, m: PrgMapping | null, areas: CpuArea[], onJump: (fileOffset: number) => void): HTMLElement {
   const input = el('input', { type: 'text', class: 'mono', size: '8', value: 'FFFA' });
