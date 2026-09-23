@@ -25,7 +25,7 @@ export type AddressingMode =
   | 'rel'; // relative:          BNE $8010（operand は符号付き 8 bit の差分）
 
 /** 命令の byte 数（opcode 1 byte + operand） */
-export const MODE_LENGTH: Record<AddressingMode, 1 | 2 | 3> = {
+const MODE_LENGTH: Record<AddressingMode, 1 | 2 | 3> = {
   imp: 1, acc: 1,
   imm: 2, zp: 2, zpx: 2, zpy: 2, izx: 2, izy: 2, rel: 2,
   abs: 3, abx: 3, aby: 3, ind: 3,

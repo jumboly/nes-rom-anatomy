@@ -16,34 +16,39 @@ ROM file offset → CHR bank → Mapper → PPU address → 8x8 tile
 
 ROM ファイルはブラウザ内だけで解析され、サーバーへは送信されません。
 
-## 現在の機能（Phase 1–8）
+## 機能
 
-- iNES / NES 2.0 ヘッダ解析（Mapper, Submapper, PRG/CHR-ROM, PRG/CHR-(NV)RAM, Mirroring, Battery, Trainer, Console type, Timing ほか）
-- Raw header の byte ごとの意味表示
-- ROM Layout 表示（Header / Trainer / PRG-ROM / CHR-ROM / 余剰データの file offset・サイズ）
-- Hex Viewer（領域ごとの色分け、領域クリックでジャンプ、byte → 所属領域 + 相対 offset）
-- 切り詰められたファイル・余剰データの警告
-- CHR Pattern Table Viewer（`$0000` / `$1000` の 2 面、8 KiB bank 切替、パレット切替、Zoom、Grid）
-- Tile Inspector（ピクセル値の拡大表示、plane 0 / plane 1 の byte → ピクセルの組み立て、CHR offset / File offset / PPU address、Hex へジャンプ）
-- CHR-RAM カートリッジの説明表示（タイルがファイルに存在しない理由）
-- PRG-ROM → CPU $8000-$FFFF の対応図（NROM-256 の 2 窓 / NROM-128 のミラー。クリックで Hex へ）
-- CPU アドレスから引く: CPU address → PRG offset / File offset / 値 / 同じ byte が見える全 CPU address
+### ファイル構造
+
+- iNES / NES 2.0 ヘッダ解析（Mapper, Submapper, PRG/CHR-ROM, PRG/CHR-(NV)RAM, Mirroring, Battery, Trainer, Console type, Timing ほか）と、Raw header の byte ごとの意味表示
+- ROM Layout 表示（Header / Trainer / PRG-ROM / CHR-ROM / 余剰データの file offset・サイズ）。切り詰められたファイル・余剰データの警告
+- Hex Viewer（領域ごとの色分け、領域クリックでジャンプ、byte → 所属領域 + 相対 offset。PRG の byte ならそれが見える CPU address も表示）
+
+### CPU 側（PRG-ROM）
+
+- PRG-ROM → CPU $8000-$FFFF の対応図（NROM-256 の 2 窓 / NROM-128 のミラー / UxROM の全 bank → 切り替え窓・固定窓。クリックで Hex へ）
+- CPU アドレスから引く: CPU address → PRG offset / File offset / 値 / 同じ byte が見える全 CPU address。UxROM の切り替え窓では各 bank を入れたら何が見えるかを一覧
 - CPU メモリマップ全体（本体側 / カートリッジ側の区別、PRG-RAM・Trainer の扱い）
-- Hex Viewer で PRG の byte を選ぶと、その byte が見える CPU address も表示
-- RESET / NMI / IRQ ベクタ: `$FFFA-$FFFF` の 6 byte（little endian の読み方）、ベクタと飛び先の PRG offset / File offset、飛び先の先頭 16 byte、よくある形・ありえない形の注記（RTI だけの IRQ、RAM・Trainer・レジスタを指すベクタ、未設定の `$FFFF` など）
-- bank 切り替えのある Mapper のベクタは末尾 bank から読む（UxROM / MMC3 は配線で確定、それ以外は「推定」と明示）
-- 6502 (Ricoh 2A03) 線形逆アセンブラ: CPU アドレスから命令を順に読む。CPU address / File offset / byte 列 / 命令、非公式命令（斜体）・JAM・`.byte` の区別、PPU / APU / I/O レジスタ名、分岐・JMP・JSR の飛び先をたどる（戻る付き）、RESET / NMI / IRQ から開始
-- ベクタの飛び先に最初の数命令を逆アセンブルして表示し、逆アセンブル表示へ移動
-- ビュー間の相互ナビゲーション: Hex で選んだ byte から CPU アドレス表示・逆アセンブル・Tile Inspector へ、逆アセンブルの operand（`STA $2000`, `LDA $C123,X` など）から CPU アドレス表示へ、CPU アドレス表示から逆アセンブル・ミラー側のアドレスへ移動。移動元の命令・タイル・ベクタの byte 範囲を Hex でハイライト
-- 移動はブラウザ履歴に積まれ、ブラウザの「戻る / 進む」で全ビューの表示とスクロール位置が戻る。URL の hash（`#disasm=C000`, `#hex=8010-801F`, `#cpu=FFFA`, `#chr=01029` など）を書き換えて移動することもできる（ROM は URL に入らないため、リロード後は無効）
-- Mapper 2 (UxROM) の PRG bank 切り替え: `$8000-$BFFF` に入れる bank を選ぶと、対応図（全 bank → 切り替え窓 / 固定窓）・CPU アドレス表示・逆アセンブルがその bank の中身になる。bank は `$03:8123` の形（デバッガと同じ bank:address 表記）で示し、URL hash にも入る（`#disasm=03:8123`）。Hex で選んだ byte からは、その byte の bank を入れた状態で開く
-- CPU アドレス表示で、切り替え窓のアドレスに各 bank を入れたら何が見えるかを一覧
-- 逆アセンブルで、`$8000-$FFFF` への `STA` / `STX` / `STY` を bank 選択として注記。bus conflict を避ける 0, 1, 2… のテーブルへの書き込み（`STA table,Y`）や、書く値と ROM の値の一致も示す
+- RESET / NMI / IRQ ベクタ: `$FFFA-$FFFF` の 6 byte（little endian の読み方）、ベクタと飛び先の PRG offset / File offset、飛び先の先頭 16 byte と最初の数命令、よくある形・ありえない形の注記（RTI だけの IRQ、RAM・Trainer・レジスタを指すベクタ、未設定の `$FFFF` など）
+
+### 逆アセンブル
+
+- 6502 (Ricoh 2A03) 線形逆アセンブラ: CPU アドレスから命令を順に読む。CPU address / File offset / byte 列 / 命令、非公式命令（斜体）・JAM・`.byte` の区別、PPU / APU / I/O レジスタ名、RESET / NMI / IRQ から開始
+- `$8000-$FFFF` への `STA` / `STX` / `STY` を bank 選択（UxROM は PRG、CNROM は CHR）として注記。bus conflict を避ける 0, 1, 2… のテーブルへの書き込み（`STA table,Y`）や、書く値と ROM の値の一致も示す
+
+### PPU 側（CHR-ROM）
+
+- CHR Pattern Table Viewer（`$0000` / `$1000` の 2 面、8 KiB bank 切替、パレット切替、Zoom、Grid）。CHR-RAM カートリッジではタイルがファイルに存在しない理由を説明
+- Tile Inspector（ピクセル値の拡大表示、plane 0 / plane 1 の byte → ピクセルの組み立て、CHR offset / File offset / PPU address、Hex へジャンプ）
 - CHR-ROM → PPU $0000-$1FFF の対応図（NROM の固定配線 / CNROM の全 bank → pattern table 2 面。クリックで Hex へ）
 - PPU アドレスから引く: PPU address → CHR offset / File offset / 値 / タイル内の位置（Tile Inspector へ）/ CNROM で各 bank を入れたら何が見えるか
 - PPU メモリマップ全体（pattern table = カートリッジ、nametable = 本体の VRAM とヘッダの Mirroring による 4 面の割り当て、パレット RAM）
-- Mapper 3 (CNROM) の CHR bank 切り替え: PPU $0000-$1FFF に入れる 8 KiB bank を選ぶと、対応図・PPU アドレス表示がその bank の中身になる。Tile Inspector・Hex からは、タイルの bank を入れた場合の PPU address を `$02:0A30` の形で示し、URL hash にも入る（`#ppu=02:0A30`）
-- 逆アセンブルで、CNROM の `$8000-$FFFF` への書き込みを CHR bank 選択として注記（PRG が固定なので、書き込み先の ROM の値は常に確定）
+
+### bank 切り替えとナビゲーション
+
+- UxROM (Mapper 2) は `$8000-$BFFF` に、CNROM (Mapper 3) は PPU `$0000-$1FFF` に入れる bank を選ぶと、対応図・アドレス表示・逆アセンブルがその bank の中身になる。bank は `$03:8123` の形（デバッガと同じ bank:address 表記）で示す。Hex で選んだ byte からは、その byte の bank を入れた状態で開く
+- ビュー間の相互ナビゲーション: Hex の byte から CPU / PPU アドレス表示・逆アセンブル・Tile Inspector へ、逆アセンブルの operand や分岐・JMP・JSR の飛び先へ、CPU アドレス表示からミラー側のアドレスへ。移動元の命令・タイル・ベクタの byte 範囲を Hex でハイライト
+- 移動はブラウザ履歴に積まれ、「戻る / 進む」で全ビューの表示とスクロール位置が戻る。URL の hash（`#disasm=03:8123`, `#hex=8010-801F`, `#ppu=02:0A30`, `#chr=01029` など）を書き換えて移動することもできる（ROM は URL に入らないため、リロード後は無効）
 
 PPU address は、CHR を bank 切り替えしない Mapper（0 = NROM, 2 = UxROM）と、表示する bank を選んだ CNROM (3) で表示します。
 CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM）と、表示する bank を選んだ UxROM (2) で表示します。
@@ -65,19 +70,22 @@ CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM�
 - 逆アセンブル: Mapper 0 / 3 は $8000-$FFFF 全体、Mapper 2 は選んだ bank + 固定 bank の $8000-$FFFF、その他はベクタと同じ末尾 bank の範囲
 - PPU アドレス対応: Mapper 0 (NROM), Mapper 2 (UxROM, CHR-ROM の場合), Mapper 3 (CNROM, 表示する bank を選択)
 
-## 今後の予定
+## 開発履歴と今後
 
-| Phase | 内容 |
-| --- | --- |
-| 2 | CHR-ROM Pattern Table Viewer / Tile Inspector / CHR-RAM 表示（済） |
-| 3 | PRG-ROM ↔ CPU アドレス空間 (NROM-128 ミラー / NROM-256)（済） |
-| 4 | RESET / NMI / IRQ ベクタ（済） |
-| 5 | 6502 (Ricoh 2A03) 線形逆アセンブラ（済） |
-| 6 | ビュー間の相互ナビゲーション（済） |
-| 7 | Mapper 2 (UxROM) の PRG バンク切り替え可視化（済） |
-| 8 | Mapper 3 (CNROM) の CHR バンク切り替え可視化（済） |
+各 Phase の設計判断と検証結果は `docs/` にあります（その時点の記録なので、後の Phase で変わった点はそのまま残しています）。
 
-その先に MMC1 / MMC3、recursive traversal によるコード解析などを検討しています。
+| Phase | 内容 | 記録 |
+| --- | --- | --- |
+| 1 | ヘッダ解析・ROM Layout・Hex Viewer | [phase1](docs/phase1-report.md) |
+| 2 | CHR-ROM Pattern Table Viewer / Tile Inspector / CHR-RAM 表示 | [phase2](docs/phase2-report.md) |
+| 3 | PRG-ROM ↔ CPU アドレス空間 (NROM-128 ミラー / NROM-256) | [phase3](docs/phase3-report.md) |
+| 4 | RESET / NMI / IRQ ベクタ | [phase4](docs/phase4-report.md) |
+| 5 | 6502 (Ricoh 2A03) 線形逆アセンブラ | [phase5](docs/phase5-report.md) |
+| 6 | ビュー間の相互ナビゲーション | [phase6](docs/phase6-report.md) |
+| 7 | Mapper 2 (UxROM) の PRG バンク切り替え | [phase7](docs/phase7-report.md) |
+| 8 | Mapper 3 (CNROM) の CHR バンク切り替えと PPU アドレス空間 | [phase8](docs/phase8-report.md) |
+
+この先は MMC1 / MMC3、recursive traversal によるコード解析などを検討しています。細かい改善点は GitHub Issues で管理しています。
 
 ## 開発
 
@@ -101,6 +109,7 @@ tools/generate-test-rom.ts   Synthetic ROM generator（パーサーとは独立�
 src/nes/                     解析ロジック（DOM 非依存, unit test 対象）
 src/ui/                      表示（素の DOM）。ビュー間の移動は src/ui/nav.ts（ブラウザ履歴）を通す
 test-roms/                   テスト ROM（説明は test-roms/README.md）
+docs/                        各 Phase の設計判断・検証の記録
 ```
 
 ## テスト ROM について

@@ -13,7 +13,7 @@ import { locateOffset, type NesRom, type RegionKind } from './rom.ts';
 import { readVectors, vectorLabelsAt, type VectorBasis } from './vectors.ts';
 
 /** Trainer はコピー機器が CPU $7000 へロードする前提のもの */
-export const TRAINER_CPU = 0x7000;
+const TRAINER_CPU = 0x7000;
 
 /**
  * CPU アドレス。bank は UxROM の切り替え窓 ($8000-$BFFF) に見えるアドレスのときだけ付き、

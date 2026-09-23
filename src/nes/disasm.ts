@@ -7,6 +7,7 @@
  * そのため開始位置が命令の途中だったり、途中にデータがあったりすると、それらしいが誤った命令列になる。
  * byte は ROM ファイルではなく cpu-map.ts の対応を通して読むので、CPU から見たアドレス・ミラーのまま命令が並ぶ。
  */
+import { dollarHex } from './hex.ts';
 import { prgMapping, readCpu, type CpuByte, type PrgMapping } from './cpu-map.ts';
 import { OPCODES, type AddressingMode, type Opcode } from './opcodes.ts';
 import { chrMapping } from './ppu-map.ts';
@@ -48,9 +49,6 @@ export interface Disassembly {
 /** 行に付けるラベルを引く関数。ミラーでも同じ byte ならラベルを出せるよう、CpuByte ごと渡す */
 export type LabelLookup = (b: CpuByte) => string[];
 
-const hex2 = (v: number) => `$${v.toString(16).toUpperCase().padStart(2, '0')}`;
-const hex4 = (v: number) => `$${v.toString(16).toUpperCase().padStart(4, '0')}`;
-
 /**
  * 本体側レジスタの名前。名前は nesdev wiki の表記。
  * 逆アセンブル結果の `STA $2000` より `PPUCTRL` と書いてある方が、NES のコードとして読みやすいため。
@@ -70,7 +68,7 @@ export function registerName(addr: number): string | null {
   if (addr >= 0x2000 && addr <= 0x3fff) {
     const name = PPU_REGISTERS[addr & 7]!;
     // PPU レジスタは 8 byte ごとに繰り返し見える。ミラー経由で書くコードは実在するので、実体の名前を添える
-    return addr <= 0x2007 ? name : `${name}（${hex4(0x2000 + (addr & 7))} のミラー）`;
+    return addr <= 0x2007 ? name : `${name}（${dollarHex(0x2000 + (addr & 7), 4)} のミラー）`;
   }
   return IO_REGISTERS[addr] ?? null;
 }
@@ -79,19 +77,19 @@ function operandText(op: Opcode, value: number, target: number | null): string {
   switch (op.mode) {
     case 'imp': return '';
     case 'acc': return 'A';
-    case 'imm': return `#${hex2(value)}`;
-    case 'zp': return hex2(value);
-    case 'zpx': return `${hex2(value)},X`;
-    case 'zpy': return `${hex2(value)},Y`;
-    case 'izx': return `(${hex2(value)},X)`;
-    case 'izy': return `(${hex2(value)}),Y`;
+    case 'imm': return `#${dollarHex(value, 2)}`;
+    case 'zp': return dollarHex(value, 2);
+    case 'zpx': return `${dollarHex(value, 2)},X`;
+    case 'zpy': return `${dollarHex(value, 2)},Y`;
+    case 'izx': return `(${dollarHex(value, 2)},X)`;
+    case 'izy': return `(${dollarHex(value, 2)}),Y`;
     // ゼロページ番地でも 4 桁で書くのは、absolute 形式（3 byte）であることを表記で区別するため
-    case 'abs': return hex4(value);
-    case 'abx': return `${hex4(value)},X`;
-    case 'aby': return `${hex4(value)},Y`;
-    case 'ind': return `(${hex4(value)})`;
+    case 'abs': return dollarHex(value, 4);
+    case 'abx': return `${dollarHex(value, 4)},X`;
+    case 'aby': return `${dollarHex(value, 4)},Y`;
+    case 'ind': return `(${dollarHex(value, 4)})`;
     // 相対分岐は差分ではなく飛び先の絶対アドレスで書くのが一般的（ca65 / da65 / nestest.log も同じ）
-    case 'rel': return hex4(target!);
+    case 'rel': return dollarHex(target!, 4);
   }
 }
 
@@ -145,13 +143,13 @@ function bankWriteNotes(rom: NesRom, m: PrgMapping, op: Opcode, value: number): 
   if (op.mode === 'abs') {
     const b = readCpu(rom, m, value);
     if (b?.value != null && value >= r.certainFrom) {
-      notes.push(`bus conflict のある基板では、書く値が ${hex4(value)} の ROM の値 (${hex2(b.value)}) と一致していないと結果が不定になる。`);
+      notes.push(`bus conflict のある基板では、書く値が ${dollarHex(value, 4)} の ROM の値 (${dollarHex(b.value, 2)}) と一致していないと結果が不定になる。`);
     }
     return notes;
   }
   const table = Array.from({ length: r.bankCount }, (_, i) => readCpu(rom, m, value + i)?.value);
   if (table.every((v, i) => v === i)) {
-    notes.push(`${hex4(value)} からは 0, 1, 2… と並んだテーブル。bank 番号と同じ値を持つ番地に書くことで、bus conflict（書く値と ROM の値の衝突）を避ける定番の形。`);
+    notes.push(`${dollarHex(value, 4)} からは 0, 1, 2… と並んだテーブル。bank 番号と同じ値を持つ番地に書くことで、bus conflict（書く値と ROM の値の衝突）を避ける定番の形。`);
   } else if (r.busConflicts === true) {
     notes.push('bus conflict のある基板では、書く値と書き込み先の ROM の値が一致している必要がある。');
   }
@@ -172,7 +170,7 @@ function notesFor(op: Opcode, value: number): string[] {
   }
   if (op.mode === 'ind' && (value & 0xff) === 0xff) {
     // 6502 のバグ: ポインタの上位 byte を読むとき、下位 8 bit だけが繰り上がる
-    notes.push(`6502 のバグにより、飛び先の上位 byte は ${hex4(value + 1)} ではなく ${hex4(value & 0xff00)} から読まれる。`);
+    notes.push(`6502 のバグにより、飛び先の上位 byte は ${dollarHex(value + 1, 4)} ではなく ${dollarHex(value & 0xff00, 4)} から読まれる。`);
   }
   if (op.mode === 'abs' || op.mode === 'abx' || op.mode === 'aby') {
     const reg = registerName(value);
@@ -186,7 +184,7 @@ const FLOW_ENDS = new Set(['RTS', 'RTI', 'JMP', 'JAM']);
 const REF_MODES = new Set<AddressingMode>(['abs', 'abx', 'aby', 'ind']);
 
 function dataLine(b: CpuByte, labels: string[], why: string): DisasmLine {
-  return { cpu: b.cpu, bytes: [b], op: null, text: `.byte ${hex2(b.value!)}`, target: null, ref: null, labels, notes: [why], flowEnds: false };
+  return { cpu: b.cpu, bytes: [b], op: null, text: `.byte ${dollarHex(b.value!, 2)}`, target: null, ref: null, labels, notes: [why], flowEnds: false };
 }
 
 /**
@@ -199,8 +197,8 @@ export function disassemble(rom: NesRom, m: PrgMapping, start: number, count: nu
   while (lines.length < count) {
     if (cpu > 0xffff) return { start, lines, next: null, stop: 'CPU アドレス空間の終わり ($FFFF) に達した。' };
     const first = readCpu(rom, m, cpu);
-    if (!first) return { start, lines, next: null, stop: `${hex4(cpu)} は PRG-ROM として読めない（この Mapper の対応では中身が決まらない範囲）。` };
-    if (first.value === null) return { start, lines, next: null, stop: `${hex4(cpu)} はファイルが途中で切れていて byte が無い。` };
+    if (!first) return { start, lines, next: null, stop: `${dollarHex(cpu, 4)} は PRG-ROM として読めない（この Mapper の対応では中身が決まらない範囲）。` };
+    if (first.value === null) return { start, lines, next: null, stop: `${dollarHex(cpu, 4)} はファイルが途中で切れていて byte が無い。` };
 
     const op = OPCODES[first.value]!;
     const labels = labelsAt(first);
@@ -220,7 +218,7 @@ export function disassemble(rom: NesRom, m: PrgMapping, start: number, count: nu
     // 1 byte ずつ .byte にして、ラベルの位置から命令を読み直す（線形逆アセンブルでずれた区切りをここで取り戻す）
     const crossed = bytes.slice(1).find((b) => labelsAt(b).length);
     if (crossed) {
-      lines.push(dataLine(first, labels, `${op.mnemonic} として読むと ${labelsAt(crossed).join(' / ')} (${hex4(crossed.cpu)}) の位置に operand がかかるため、命令として扱わない。`));
+      lines.push(dataLine(first, labels, `${op.mnemonic} として読むと ${labelsAt(crossed).join(' / ')} (${dollarHex(crossed.cpu, 4)}) の位置に operand がかかるため、命令として扱わない。`));
       cpu += 1;
       continue;
     }
@@ -287,7 +285,7 @@ export function disasmMapping(rom: NesRom, bank?: number): DisasmMapping | null 
   const v = readVectors(rom);
   if (!v) return null;
   const w = v.mapping.windows[0]!;
-  const range = `${hex4(w.cpuStart)}-$FFFF`;
+  const range = `${dollarHex(w.cpuStart, 4)}-$FFFF`;
   return {
     mapping: v.mapping,
     basis: v.basis,

@@ -1,6 +1,7 @@
-export const hex = (value: number, digits: number) => value.toString(16).toUpperCase().padStart(digits, '0');
+import { hex } from '../nes/hex.ts';
 
-export const hexBytes = (bytes: Uint8Array) => [...bytes].map((b) => hex(b, 2)).join(' ');
+// UI 側は従来どおり format.ts から hex を取れるようにし、表記の実体は nes/hex.ts に一本化する
+export { hex };
 
 export function formatSize(bytes: number): string {
   if (bytes >= 1024 && bytes % 1024 === 0) return `${bytes / 1024} KiB`;

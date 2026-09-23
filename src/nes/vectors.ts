@@ -6,13 +6,14 @@
  * そのアドレスへ飛ぶ。つまりこの 6 byte が「プログラムの入口」で、ROM 解析の出発点になる。
  * ベクタは「ファイル末尾」ではなく「CPU から $FFFA に見える byte」なので、cpu-map.ts の対応を通して読む。
  */
+import { dollarHex } from './hex.ts';
 import { powerOnLastBank } from './mapper.ts';
 import { PRG_WINDOW_START, cpuMemoryMap, prgMapping, prgToCpu, readCpu, type CpuArea, type CpuByte, type PrgMapping } from './cpu-map.ts';
 import type { NesRom } from './rom.ts';
 
 export type VectorName = 'NMI' | 'RESET' | 'IRQ';
 
-export const VECTORS: readonly { name: VectorName; cpu: number; when: string }[] = [
+const VECTORS: readonly { name: VectorName; cpu: number; when: string }[] = [
   { name: 'NMI', cpu: 0xfffa, when: 'PPU の VBlank 開始時（PPUCTRL bit 7 で有効にした場合）。画面更新の処理を置くのが普通。' },
   { name: 'RESET', cpu: 0xfffc, when: '電源投入時とリセットボタン。プログラムの最初の命令がここ。' },
   { name: 'IRQ', cpu: 0xfffe, when: 'IRQ（Mapper・APU のフレームカウンタ・DMC）と BRK 命令で共用。' },
@@ -63,8 +64,6 @@ export interface VectorTable {
   entries: VectorEntry[];
 }
 
-const hex4 = (v: number) => `$${v.toString(16).toUpperCase().padStart(4, '0')}`;
-
 /**
  * 末尾 bank だけを CPU 空間の最後に置いた窓。
  * それより下の $8000- は実行時の bank 次第なので、窓を作らず「読めない」扱いにする。
@@ -95,7 +94,7 @@ function chooseMapping(rom: NesRom): Pick<VectorTable, 'basis' | 'mapping' | 'ex
   const bank = powerOnLastBank(rom.header.mapper);
   const mapping = lastBankMapping(rom, bank.size);
   const w = mapping.windows[0]!;
-  const range = `PRG-ROM の末尾 ${w.size / 1024} KiB (PRG +${hex4(w.prgOffset)}〜) が CPU ${hex4(w.cpuStart)}-$FFFF`;
+  const range = `PRG-ROM の末尾 ${w.size / 1024} KiB (PRG +${dollarHex(w.prgOffset, 4)}〜) が CPU ${dollarHex(w.cpuStart, 4)}-$FFFF`;
   return {
     basis: bank.certain ? 'fixed-bank' : 'assumed-bank',
     mapping,

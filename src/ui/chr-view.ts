@@ -1,6 +1,4 @@
 import {
-  CHR_BANK_BYTES,
-  PATTERN_TABLE_BYTES,
   PATTERN_TABLE_PIXELS,
   PATTERN_TABLE_TILES_PER_ROW,
   TILE_BYTES,
@@ -12,7 +10,7 @@ import {
   tileAtChrOffset,
   type TileLocation,
 } from '../nes/chr.ts';
-import { chrMapping } from '../nes/ppu-map.ts';
+import { CHR_WINDOW_SIZE, PATTERN_TABLE_SIZE, chrMapping } from '../nes/ppu-map.ts';
 import type { NesRom } from '../nes/rom.ts';
 import { addrText, el, formatSize, hex } from './format.ts';
 import type { Navigator } from './nav.ts';
@@ -172,7 +170,7 @@ function renderInspector(
     `$${hex(loc.fileOffset, 6)}–$${hex(loc.fileOffset + TILE_BYTES - 1, 6)}`);
   fileLink.classList.add('mono');
 
-  const tableBase = `$${hex(sel.table * PATTERN_TABLE_BYTES, 4)}`;
+  const tableBase = `$${hex(sel.table * PATTERN_TABLE_SIZE, 4)}`;
   const info = el('table', { class: 'kv' },
     el('tr', {}, el('th', {}, 'Tile'), el('td', { class: 'mono' }, `$${hex(sel.tile, 2)}（pattern table ${tableBase} 側, bank ${bank}）`)),
     el('tr', {}, el('th', {}, 'CHR offset'), el('td', { class: 'mono' }, `$${hex(loc.chrOffset, 5)}`)),
@@ -228,7 +226,7 @@ export function renderChrView(rom: NesRom, nav: Navigator): HTMLElement {
 
   const bankSelect = el('select', {});
   for (let b = 0; b < banks; b++) {
-    bankSelect.append(el('option', { value: String(b) }, `bank ${b}（CHR +$${hex(b * CHR_BANK_BYTES, 5)}）`));
+    bankSelect.append(el('option', { value: String(b) }, `bank ${b}（CHR +$${hex(b * CHR_WINDOW_SIZE, 5)}）`));
   }
   const paletteSelect = el('select', {});
   PALETTES.forEach((p, i) => paletteSelect.append(el('option', { value: String(i) }, p.name)));
@@ -238,8 +236,8 @@ export function renderChrView(rom: NesRom, nav: Navigator): HTMLElement {
   const tablePixels: Uint8Array[] = [];
 
   function decodeBank() {
-    tablePixels[0] = decodePatternTable(rom.chrRom, bank * CHR_BANK_BYTES);
-    tablePixels[1] = decodePatternTable(rom.chrRom, bank * CHR_BANK_BYTES + PATTERN_TABLE_BYTES);
+    tablePixels[0] = decodePatternTable(rom.chrRom, bank * CHR_WINDOW_SIZE);
+    tablePixels[1] = decodePatternTable(rom.chrRom, bank * CHR_WINDOW_SIZE + PATTERN_TABLE_SIZE);
   }
 
   function draw() {

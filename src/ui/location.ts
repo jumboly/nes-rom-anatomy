@@ -13,6 +13,8 @@
  *   #chr=00A35                  CHR offset の 1 byte（bank / pattern table / タイル / タイル内の行が決まり、その byte を強調する）
  *   #tile=00A30                 タイルの選択だけ（Pattern Table でクリックした場合。byte は強調しない）
  */
+import { hex } from '../nes/hex.ts';
+
 export type NavLocation =
   | { view: 'hex'; offset: number; length: number }
   /** bank: UxROM の切り替え窓に入れる bank。省略するとビューが今選んでいる bank のまま */
@@ -22,19 +24,17 @@ export type NavLocation =
   | { view: 'ppu'; ppu: number; bank?: number }
   | { view: 'chr'; chrOffset: number; highlight: boolean };
 
-const h = (v: number, digits: number) => v.toString(16).toUpperCase().padStart(digits, '0');
-
 export function formatHash(loc: NavLocation): string {
   switch (loc.view) {
     case 'hex':
-      return loc.length > 1 ? `#hex=${h(loc.offset, 4)}-${h(loc.offset + loc.length - 1, 4)}` : `#hex=${h(loc.offset, 4)}`;
+      return loc.length > 1 ? `#hex=${hex(loc.offset, 4)}-${hex(loc.offset + loc.length - 1, 4)}` : `#hex=${hex(loc.offset, 4)}`;
     case 'cpu':
     case 'disasm':
-      return `#${loc.view}=${loc.bank === undefined ? '' : `${h(loc.bank, 2)}:`}${h(loc.cpu, 4)}`;
+      return `#${loc.view}=${loc.bank === undefined ? '' : `${hex(loc.bank, 2)}:`}${hex(loc.cpu, 4)}`;
     case 'ppu':
-      return `#ppu=${loc.bank === undefined ? '' : `${h(loc.bank, 2)}:`}${h(loc.ppu, 4)}`;
+      return `#ppu=${loc.bank === undefined ? '' : `${hex(loc.bank, 2)}:`}${hex(loc.ppu, 4)}`;
     case 'chr':
-      return `#${loc.highlight ? 'chr' : 'tile'}=${h(loc.chrOffset, 5)}`;
+      return `#${loc.highlight ? 'chr' : 'tile'}=${hex(loc.chrOffset, 5)}`;
   }
 }
 

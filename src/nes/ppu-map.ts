@@ -6,14 +6,14 @@
  * CHR-ROM 先頭からの offset（CHR offset）と PPU アドレスを対応付け、file offset への変換は rom.ts の領域情報に任せる。
  * chr.ts（タイルのデコード）はこのモジュールを使う側なので、循環 import を避けるため chr.ts は import しない。
  */
-import { hasFixedChr, hasSwitchableChr } from './mapper.ts';
+import { dollarHex, isPowerOfTwo } from './hex.ts';
+import { hasFixedChr, hasSwitchableChr, latchBanks, latchBusConflicts } from './mapper.ts';
 import { findRegion, type NesRom } from './rom.ts';
 
 /** PPU $0000-$1FFF。pattern table 2 面ぶんで、CNROM が一度に切り替える大きさでもある */
 export const CHR_WINDOW_SIZE = 0x2000;
 /** pattern table 1 面 = 4 KiB。窓はこの単位で並べ、$0000 側と $1000 側を区別して見せる */
-const PATTERN_TABLE_SIZE = 0x1000;
-export const PPU_ADDRESS_SPACE = 0x4000;
+export const PATTERN_TABLE_SIZE = 0x1000;
 
 /**
  * CHR-ROM を PPU アドレスに見せる窓（pattern table 1 面ぶん）。
@@ -53,10 +53,6 @@ export interface ChrMapping {
   bankSwitch: ChrBankSwitch | null;
 }
 
-const isPowerOfTwo = (n: number) => n > 0 && (n & (n - 1)) === 0;
-const hex4 = (v: number) => `$${v.toString(16).toUpperCase().padStart(4, '0')}`;
-const hex5 = (v: number) => `$${v.toString(16).toUpperCase().padStart(5, '0')}`;
-
 /**
  * CHR-ROM の窓一覧。CHR を固定で配線している Mapper はそのまま、CNROM は bank（省略時 0）を入れた場合の対応を返す。
  * CHR-RAM のカートリッジ（中身がファイルに無い）と、未対応の Mapper は null。
@@ -90,15 +86,12 @@ export function chrMapping(rom: NesRom, bank?: number): ChrMapping | null {
 
 /**
  * CNROM: PPU $0000-$1FFF = 選んだ 8 KiB bank。
- * 範囲外の bank 番号は、実機と同じく「書いた値の下位 bit だけが効く」として bank 数で折り返す。
  */
 function cnromMapping(rom: NesRom, requested: number): ChrMapping {
   const { chrRomSize: size, submapper } = rom.header;
-  const bankCount = Math.max(1, Math.ceil(size / CHR_WINDOW_SIZE));
-  const bank = ((requested % bankCount) + bankCount) % bankCount;
-  const bits = Math.ceil(Math.log2(bankCount));
+  const { bankCount, bank, bits, exact } = latchBanks(size, CHR_WINDOW_SIZE, requested);
   const warnings: string[] = [];
-  if (size % CHR_WINDOW_SIZE !== 0 || !isPowerOfTwo(bankCount)) {
+  if (!exact) {
     // 下位 bit だけを見る回路では、bank 数が 2 のべき乗でないと、存在しない bank 番号を選べてしまう
     warnings.push(
       `CHR-ROM ${size / 1024} KiB は 8 KiB × 2 のべき乗ではないため、bank の割り当ては推定です` +
@@ -106,8 +99,8 @@ function cnromMapping(rom: NesRom, requested: number): ChrMapping {
   }
   // 純正の CNROM 基板は 2 bit（最大 32 KiB）。それより大きいものは互換基板・エミュレータ上の拡張
   const board = bankCount <= 4 ? 'CNROM' : 'CNROM 互換（大容量）';
-  // NES 2.0 の Mapper 3 submapper: 1 = bus conflict なし, 2 = あり（AND 型）。0 と iNES 1.0 は区別なし
-  const busConflicts = submapper === 1 ? false : submapper === 2 ? true : null;
+  // Mapper 3 の submapper 2 は AND 型の bus conflict（書く値と ROM の値の AND が効く）
+  const busConflicts = latchBusConflicts(submapper);
   const base = bank * CHR_WINDOW_SIZE;
   const windows: ChrWindow[] = [0, PATTERN_TABLE_SIZE].map((ppu) => ({
     ppuStart: ppu, size: PATTERN_TABLE_SIZE, chrOffset: base + ppu, mirror: false, bank, switchable: true,
@@ -121,7 +114,7 @@ function cnromMapping(rom: NesRom, requested: number): ChrMapping {
 
 /** bank の範囲の表記（例: "CHR +$04000–$05FFF"） */
 export function chrBankRange(bank: number): string {
-  return `CHR +${hex5(bank * CHR_WINDOW_SIZE)}–${hex5(bank * CHR_WINDOW_SIZE + CHR_WINDOW_SIZE - 1)}`;
+  return `CHR +${dollarHex(bank * CHR_WINDOW_SIZE, 5)}–${dollarHex(bank * CHR_WINDOW_SIZE + CHR_WINDOW_SIZE - 1, 5)}`;
 }
 
 const windowAt = (m: ChrMapping, ppu: number) => m.windows.find((w) => ppu >= w.ppuStart && ppu < w.ppuStart + w.size);
@@ -216,7 +209,7 @@ function patternTableAreas(rom: NesRom, m: ChrMapping | null): PpuArea[] {
   }
   const sw = m.bankSwitch;
   return m.windows.map((w, i) => {
-    const range = `CHR +${hex5(w.chrOffset)}–${hex5(w.chrOffset + w.size - 1)}`;
+    const range = `CHR +${dollarHex(w.chrOffset, 5)}–${dollarHex(w.chrOffset + w.size - 1, 5)}`;
     const original = m.windows.find((o) => o.chrOffset === w.chrOffset)!;
     return {
       start: w.ppuStart,
@@ -227,7 +220,7 @@ function patternTableAreas(rom: NesRom, m: ChrMapping | null): PpuArea[] {
       mirrorOf: w.mirror ? original.ppuStart : undefined,
       note: sw
         ? `${range}。CPU $8000-$FFFF への書き込みの値（下位 ${sw.bits} bit）で、$0000-$1FFF の 8 KiB がまとめて bank 0〜${sw.bankCount - 1} のどれかに切り替わる。`
-        : w.mirror ? `${hex4(original.ppuStart)}–${hex4(original.ppuStart + w.size - 1)} と同じ byte が見える。` : 'CHR-ROM の byte がそのまま読める。',
+        : w.mirror ? `${dollarHex(original.ppuStart, 4)}–${dollarHex(original.ppuStart + w.size - 1, 4)} と同じ byte が見える。` : 'CHR-ROM の byte がそのまま読める。',
     };
   });
 }
@@ -256,7 +249,7 @@ export function ppuMemoryMap(rom: NesRom, m: ChrMapping | null = chrMapping(rom)
       mirrorOf: mirror ? 0x2000 + first * 0x400 : undefined,
       cartridge: true,
       note: mirror
-        ? `${hex4(0x2000 + first * 0x400)} と同じ 1 KiB が見える。${mirroringNote}`
+        ? `${dollarHex(0x2000 + first * 0x400, 4)} と同じ 1 KiB が見える。${mirroringNote}`
         : `背景のタイル番号 (960 byte) と属性テーブル (64 byte)。中身は実行時に CPU が書き込み、ROM には含まれない。${mirroringNote}`,
     };
   });

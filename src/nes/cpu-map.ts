@@ -6,11 +6,12 @@
  * ここでは PRG-ROM 先頭からの offset（PRG offset）と CPU アドレスを対応付け、
  * file offset への変換は rom.ts の領域情報に任せる。
  */
-import { hasFixedPrg, hasSwitchablePrg } from './mapper.ts';
+import { dollarHex, isPowerOfTwo } from './hex.ts';
+import { hasFixedPrg, hasSwitchablePrg, latchBanks, latchBusConflicts } from './mapper.ts';
 import { findRegion, type NesRom } from './rom.ts';
 
 export const PRG_WINDOW_START = 0x8000;
-export const CPU_ADDRESS_SPACE = 0x10000;
+const CPU_ADDRESS_SPACE = 0x10000;
 /** NROM が CPU に見せられる最大 PRG サイズ ($8000-$FFFF) */
 const PRG_VISIBLE_MAX = CPU_ADDRESS_SPACE - PRG_WINDOW_START;
 /** NROM-128 / NROM-256 の説明に合わせ、PRG は 16 KiB 単位の窓に分けて見せる */
@@ -66,8 +67,6 @@ export interface PrgMapping {
   bankSwitch: PrgBankSwitch | null;
 }
 
-const isPowerOfTwo = (n: number) => n > 0 && (n & (n - 1)) === 0;
-
 /**
  * PRG-ROM の窓一覧。PRG を固定で配線している Mapper はそのまま、
  * UxROM は切り替え窓に bank（省略時 0）を入れた場合の対応を返す。それ以外の bank 切り替えがある Mapper は未対応で null。
@@ -108,29 +107,23 @@ export function prgMapping(rom: NesRom, bank?: number): PrgMapping | null {
 }
 
 /** 切り替え窓・固定窓の大きさ。UxROM の bank は 16 KiB */
-export const UXROM_BANK_SIZE = 0x4000;
-
-const hex5 = (v: number) => `$${v.toString(16).toUpperCase().padStart(5, '0')}`;
+const UXROM_BANK_SIZE = 0x4000;
 
 /**
  * UxROM: $8000-$BFFF = 選んだ bank、$C000-$FFFF = 最終 bank（固定）。
- * 範囲外の bank 番号は、実機と同じく「書いた値の下位 bit だけが効く」として bank 数で折り返す。
  */
 function uxromMapping(rom: NesRom, requested: number): PrgMapping {
   const { prgRomSize: size, submapper } = rom.header;
-  const bankCount = Math.max(1, Math.ceil(size / UXROM_BANK_SIZE));
-  const bank = ((requested % bankCount) + bankCount) % bankCount;
+  const { bankCount, bank, bits, exact } = latchBanks(size, UXROM_BANK_SIZE, requested);
   const fixedBank = bankCount - 1;
-  const bits = Math.ceil(Math.log2(bankCount));
   const warnings: string[] = [];
-  if (size % UXROM_BANK_SIZE !== 0 || !isPowerOfTwo(bankCount)) {
+  if (!exact) {
     // 下位 bit だけを見る回路では、bank 数が 2 のべき乗でないと「最終 bank」と「全 bit 1 の bank」が一致しない
     warnings.push(`PRG-ROM サイズ ${size} byte は 16 KiB × 2 のべき乗ではないため、bank の割り当ては推定です。`);
   }
   // UNROM は 74HC161 の 3 bit（最大 128 KiB）、UOROM は 4 bit（256 KiB）。それより大きいものは互換基板・エミュレータ上の拡張
   const board = bankCount <= 8 ? 'UNROM' : bankCount <= 16 ? 'UOROM' : 'UxROM 互換（大容量）';
-  // NES 2.0 の Mapper 2 submapper: 1 = bus conflict なし, 2 = あり。0 と iNES 1.0 は区別なし
-  const busConflicts = submapper === 1 ? false : submapper === 2 ? true : null;
+  const busConflicts = latchBusConflicts(submapper);
   const bankStart = (b: number) => b * UXROM_BANK_SIZE;
   const windows: PrgWindow[] = [
     { cpuStart: 0x8000, size: UXROM_BANK_SIZE, prgOffset: bankStart(bank), mirror: false, bank, switchable: true },
@@ -145,7 +138,7 @@ function uxromMapping(rom: NesRom, requested: number): PrgMapping {
 
 /** bank の範囲の表記（例: "PRG +$0C000–$0FFFF"） */
 export function bankRange(bank: number, size = UXROM_BANK_SIZE): string {
-  return `PRG +${hex5(bank * size)}–${hex5(bank * size + size - 1)}`;
+  return `PRG +${dollarHex(bank * size, 5)}–${dollarHex(bank * size + size - 1, 5)}`;
 }
 
 const windowAt = (m: PrgMapping, cpu: number) =>
@@ -213,10 +206,6 @@ export interface CpuArea {
   note: string;
 }
 
-function hex4(v: number) {
-  return `$${v.toString(16).toUpperCase().padStart(4, '0')}`;
-}
-
 /**
  * $6000-$7FFF の中身。NROM では PRG-RAM を持つ例は Family BASIC 程度で、
  * iNES 1.0 はそもそも PRG-RAM の有無を正確に記録していないことが多い。
@@ -269,7 +258,7 @@ function prgRomAreas(rom: NesRom, m: PrgMapping | null): CpuArea[] {
   }
   return m.windows.map((w) => {
     const prgEnd = w.prgOffset + w.size - 1;
-    const range = `PRG +$${w.prgOffset.toString(16).toUpperCase().padStart(4, '0')}–$${prgEnd.toString(16).toUpperCase().padStart(4, '0')}`;
+    const range = `PRG +${dollarHex(w.prgOffset, 4)}–${dollarHex(prgEnd, 4)}`;
     const original = m.windows.find((o) => o.prgOffset === w.prgOffset)!;
     return {
       start: w.cpuStart,
@@ -278,7 +267,7 @@ function prgRomAreas(rom: NesRom, m: PrgMapping | null): CpuArea[] {
       label: w.mirror ? `PRG-ROM ミラー（${range}）` : `PRG-ROM（${range}）`,
       mirrorOf: w.mirror ? original.cpuStart : undefined,
       cartridge: true,
-      note: w.mirror ? `${hex4(original.cpuStart)}–${hex4(original.cpuStart + w.size - 1)} と同じ byte が見える。` : 'ROM の byte がそのまま読める。',
+      note: w.mirror ? `${dollarHex(original.cpuStart, 4)}–${dollarHex(original.cpuStart + w.size - 1, 4)} と同じ byte が見える。` : 'ROM の byte がそのまま読める。',
     };
   });
 }

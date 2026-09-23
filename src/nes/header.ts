@@ -5,8 +5,8 @@
 
 export const HEADER_SIZE = 16;
 export const TRAINER_SIZE = 512;
-export const PRG_ROM_UNIT = 16 * 1024;
-export const CHR_ROM_UNIT = 8 * 1024;
+const PRG_ROM_UNIT = 16 * 1024;
+const CHR_ROM_UNIT = 8 * 1024;
 
 /**
  * - 'NES 2.0'      : byte 7 bits 2-3 = 10b

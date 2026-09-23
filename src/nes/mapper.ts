@@ -1,8 +1,9 @@
 /**
  * Mapper ごとの性質のうち、アドレス対応を計算する側が知る必要のあるもの。
- * 実際の窓の計算は cpu-map.ts (PRG) / chr.ts (CHR) が行う。
+ * 実際の窓の計算は cpu-map.ts (PRG) / ppu-map.ts (CHR) が行う。
  */
 import type { NesHeader } from './header.ts';
+import { isPowerOfTwo } from './hex.ts';
 
 const MAPPER_NAMES: Record<number, string> = {
   0: 'NROM',
@@ -37,7 +38,7 @@ export function hasSwitchablePrg(mapper: number): boolean {
 /**
  * bank 切り替えがある Mapper で、電源投入時に CPU 空間の末尾に見える PRG bank。
  * ベクタ ($FFFA-$FFFF) を読むには「起動直後にどの bank が末尾にあるか」だけ分かればよいので、
- * bank 切り替えの完全な対応（Phase 7 以降）より先に、この仮定だけでベクタを読めるようにする。
+ * bank 切り替えの完全な対応を持たない Mapper (MMC1 / MMC3 など) でも、この仮定だけでベクタを読めるようにする。
  * certain = true は配線で決まっていて推定ではないもの。
  */
 export interface PowerOnLastBank {
@@ -90,4 +91,40 @@ export function hasFixedChr(header: NesHeader): boolean {
  */
 export function hasSwitchableChr(mapper: number): boolean {
   return mapper === 3;
+}
+
+/**
+ * UxROM / CNROM のような「$8000-$FFFF に書いた値をラッチし、その下位 bit を ROM の上位アドレス線にする」Mapper の bank 計算。
+ * PRG と CHR のどちらを切り替えるかが違うだけで回路は同じなので、bank 数・bit 数・折り返しの規則を共有する。
+ */
+export interface LatchBanks {
+  bankCount: number;
+  /** 範囲外の要求を折り返した bank 番号 */
+  bank: number;
+  /** 書き込んだ値の下位何 bit が bank 番号になるか */
+  bits: number;
+  /**
+   * サイズが bankSize × 2 のべき乗か。そうでないと下位 bit で選べる範囲と実在する bank が一致せず、
+   * 「最終 bank」や存在しない bank 番号の扱いが基板・エミュレータ次第になる
+   */
+  exact: boolean;
+}
+
+export function latchBanks(size: number, bankSize: number, requested: number): LatchBanks {
+  const bankCount = Math.max(1, Math.ceil(size / bankSize));
+  return {
+    bankCount,
+    // 実機では書いた値の下位 bit だけが効くので、範囲外の番号は bank 数で折り返す
+    bank: ((requested % bankCount) + bankCount) % bankCount,
+    bits: Math.ceil(Math.log2(bankCount)),
+    exact: size % bankSize === 0 && isPowerOfTwo(bankCount),
+  };
+}
+
+/**
+ * NES 2.0 の Mapper 2 / 3 の submapper による bus conflict の有無: 1 = なし, 2 = あり。
+ * 0 と iNES 1.0 はヘッダに情報が無いので null（どちらとも言えない）
+ */
+export function latchBusConflicts(submapper: number | null): boolean | null {
+  return submapper === 1 ? false : submapper === 2 ? true : null;
 }

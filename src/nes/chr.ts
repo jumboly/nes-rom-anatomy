@@ -5,14 +5,13 @@
  * ここでは色を扱わない。CHR が持つのはピクセル値 0-3 だけで、
  * 実際の色は PPU のパレット RAM ($3F00-$3F1F) で決まり、ROM には含まれないため。
  */
-import { chrMapping, chrToPpu } from './ppu-map.ts';
+import { CHR_WINDOW_SIZE, PATTERN_TABLE_SIZE, chrMapping, chrToPpu } from './ppu-map.ts';
 import { findRegion, type NesRom } from './rom.ts';
 
 export const TILE_BYTES = 16;
 export const TILE_SIZE = 8;
-export const TILES_PER_PATTERN_TABLE = 256;
-export const PATTERN_TABLE_BYTES = TILES_PER_PATTERN_TABLE * TILE_BYTES; // $1000
-export const CHR_BANK_BYTES = 2 * PATTERN_TABLE_BYTES; // 8 KiB = PPU $0000-$1FFF
+// 256 タイル × 16 byte = PATTERN_TABLE_SIZE ($1000)。bank の大きさ（8 KiB）は ppu-map.ts の CHR_WINDOW_SIZE を使う
+const TILES_PER_PATTERN_TABLE = 256;
 /** Pattern table は 16x16 タイル = 128x128 ピクセル */
 export const PATTERN_TABLE_TILES_PER_ROW = 16;
 export const PATTERN_TABLE_PIXELS = PATTERN_TABLE_TILES_PER_ROW * TILE_SIZE;
@@ -54,7 +53,7 @@ export function decodePatternTable(chr: Uint8Array, tableOffset: number): Uint8A
 
 /** CHR-ROM を 8 KiB 単位に分けた数。NES 2.0 の指数表記で端数が出る場合は切り上げ */
 export function chrBankCount(rom: NesRom): number {
-  return Math.ceil(rom.header.chrRomSize / CHR_BANK_BYTES);
+  return Math.ceil(rom.header.chrRomSize / CHR_WINDOW_SIZE);
 }
 
 export interface TileLocation {
@@ -81,8 +80,8 @@ export interface TileLocation {
 export function locateTile(rom: NesRom, bank: number, patternTable: 0 | 1, tileIndex: number): TileLocation {
   const region = findRegion(rom, 'chr-rom');
   if (!region) throw new Error('ROM has no CHR-ROM');
-  const bankOffset = patternTable * PATTERN_TABLE_BYTES + tileIndex * TILE_BYTES;
-  const chrOffset = bank * CHR_BANK_BYTES + bankOffset;
+  const bankOffset = patternTable * PATTERN_TABLE_SIZE + tileIndex * TILE_BYTES;
+  const chrOffset = bank * CHR_WINDOW_SIZE + bankOffset;
   // CNROM はタイルの属する bank を入れた対応で引く（Hex から来たタイルも、その bank を見ている前提で PPU アドレスを示すため）
   const m = chrMapping(rom, bank);
   const ppu = m ? chrToPpu(m, chrOffset) : [];
@@ -114,12 +113,12 @@ export interface TileByteRef {
  * Hex で選んだ CHR の byte を Tile Inspector で開くため、どの行のどの plane かまで返す。
  */
 export function tileAtChrOffset(chrOffset: number): TileByteRef {
-  const inBank = chrOffset % CHR_BANK_BYTES;
+  const inBank = chrOffset % CHR_WINDOW_SIZE;
   const byteInTile = chrOffset % TILE_BYTES;
   return {
-    bank: Math.floor(chrOffset / CHR_BANK_BYTES),
-    patternTable: inBank < PATTERN_TABLE_BYTES ? 0 : 1,
-    tileIndex: Math.floor((inBank % PATTERN_TABLE_BYTES) / TILE_BYTES),
+    bank: Math.floor(chrOffset / CHR_WINDOW_SIZE),
+    patternTable: inBank < PATTERN_TABLE_SIZE ? 0 : 1,
+    tileIndex: Math.floor((inBank % PATTERN_TABLE_SIZE) / TILE_BYTES),
     byteInTile,
     row: byteInTile % TILE_SIZE,
     plane: byteInTile < TILE_SIZE ? 0 : 1,
