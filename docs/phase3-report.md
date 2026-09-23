@@ -44,8 +44,8 @@ Synthetic ROM は変更していない（Phase 1 で用意した NROM-128 版と
 ブラウザ（Chromium, ライト / ダーク / 幅 390px）で Synthetic 4 種（NROM-256 / NROM-128 / Trainer / CNROM）と nestest を表示し、
 対応図のクリックで Hex へ移動すること、Hex の選択表示に CPU address が出ること、コンソールエラーが無いことを確認した。
 
-## 気付いた課題（Issue 化）
+## 気付いた課題（Issue 化済み）
 
-- CPU アドレス順の Hex ダンプ（任意範囲）。現状の「CPU アドレスから引く」は 16 byte だけ。Phase 5 の逆アセンブラと合わせて検討
-- Hex → 「CPU アドレスから引く」への逆方向リンク（Phase 6 と合わせる。#10 と同種）
-- 狭い画面での表の表示。CPU メモリマップは横スクロールにしたが、ROM Layout の表は未対応
+- #15 CPU アドレス順の Hex ダンプ（任意範囲）。現状の「CPU アドレスから引く」は 16 byte だけ。Phase 5 の逆アセンブラと合わせて検討
+- #16 Hex → CPU アドレス表示への逆方向リンク（Phase 6 と合わせる。#10 と同種）
+- #17 狭い画面での表の表示。CPU メモリマップは横スクロールにしたが、ROM Layout の表は未対応
