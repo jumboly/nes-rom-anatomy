@@ -138,10 +138,69 @@ describe('other mappers', () => {
     expect(readAscii(rom, 0xff00, 16)).toBe('SYNTH PRG BANK 1');
   });
 
-  it.each([1, 2, 4])('Mapper %i (PRG bank switching) is not mapped yet', (mapper) => {
+  it.each([1, 4, 7])('Mapper %i (PRG bank switching) is not mapped yet', (mapper) => {
     const rom = tinyRom({ prgBytes: 0x8000, mapper });
     expect(prgMapping(rom)).toBeNull();
     expect(cpuMemoryMap(rom).at(-1)).toMatchObject({ start: 0x8000, end: 0xffff, kind: 'prg-rom' });
+  });
+});
+
+/**
+ * UxROM (Mapper 2): $8000-$BFFF = 選んだ bank、$C000-$FFFF = 最終 bank。
+ * synthetic-uxrom.nes は 128 KiB = 8 bank で、各 bank の +$3F00 に "SYNTH PRG BANK n" がある。
+ */
+describe('UxROM (synthetic-uxrom.nes)', () => {
+  const rom = load('synthetic-uxrom.nes');
+
+  it('puts the chosen bank at $8000 and the last bank (7) at $C000', () => {
+    const m = prgMapping(rom, 3)!;
+    expect(m.windows).toEqual([
+      { cpuStart: 0x8000, size: 0x4000, prgOffset: 0x0c000, mirror: false, bank: 3, switchable: true },
+      { cpuStart: 0xc000, size: 0x4000, prgOffset: 0x1c000, mirror: false, bank: 7, switchable: false },
+    ]);
+    expect(m.bankSwitch).toEqual({ cpuStart: 0x8000, size: 0x4000, bankCount: 8, bank: 3, fixedBank: 7, bits: 3, board: 'UNROM', busConflicts: null });
+    expect(String.fromCharCode(...Array.from({ length: 16 }, (_, i) => readCpu(rom, m, 0xbf00 + i)!.value!))).toBe('SYNTH PRG BANK 3');
+    expect(String.fromCharCode(...Array.from({ length: 16 }, (_, i) => readCpu(rom, m, 0xff00 + i)!.value!))).toBe('SYNTH PRG BANK 7');
+    // bus conflict 回避用の bank 番号表
+    expect(Array.from({ length: 8 }, (_, i) => readCpu(rom, m, 0xfe00 + i)!.value)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(readCpu(rom, m, 0xc000)).toMatchObject({ prgOffset: 0x1c000, fileOffset: 0x1c010, value: 0x78 });
+  });
+
+  it('defaults to bank 0 and wraps bank numbers like the low bits of the latch', () => {
+    expect(prgMapping(rom)!.bankSwitch!.bank).toBe(0);
+    expect(prgMapping(rom, 11)!.bankSwitch!.bank).toBe(3);
+    expect(cpuToPrg(prgMapping(rom, 5)!, 0x8123)).toBe(5 * 0x4000 + 0x123);
+  });
+
+  it('the last bank can also be put into $8000, then it is visible twice', () => {
+    const m = prgMapping(rom, 7)!;
+    expect(prgToCpu(m, 0x1c000)).toEqual([0x8000, 0xc000]);
+    // 切り替え bank 側の byte は、その bank を入れたときの $8000- だけ
+    expect(prgToCpu(prgMapping(rom, 2)!, 0x08010)).toEqual([0x8010]);
+    expect(prgToCpu(prgMapping(rom, 2)!, 0x0c010)).toEqual([]);
+  });
+
+  it('labels the windows in the CPU memory map', () => {
+    const areas = cpuMemoryMap(rom, prgMapping(rom, 3)).filter((a) => a.kind === 'prg-rom');
+    expect(areas.map((a) => [a.start, a.end, a.label])).toEqual([
+      [0x8000, 0xbfff, 'PRG-ROM bank 3（切り替え, 表示中）'],
+      [0xc000, 0xffff, 'PRG-ROM bank 7（固定）'],
+    ]);
+  });
+
+  it('names the board and bus conflicts from the size and the NES 2.0 submapper', () => {
+    const withSub = (sub: number) => ({ ...rom, header: { ...rom.header, submapper: sub } });
+    expect(prgMapping(withSub(1))!.bankSwitch!.busConflicts).toBe(false);
+    expect(prgMapping(withSub(2))!.bankSwitch!.busConflicts).toBe(true);
+    const uorom = tinyRom({ prgBytes: 0x40000, mapper: 2 });
+    expect(prgMapping(uorom)!.bankSwitch).toMatchObject({ bankCount: 16, fixedBank: 15, bits: 4, board: 'UOROM' });
+    expect(prgMapping(uorom)!.warnings).toEqual([]);
+  });
+
+  it('warns about a bank count that is not a power of two', () => {
+    const rom6 = tinyRom({ prgBytes: 6 * 0x4000, mapper: 2 });
+    expect(prgMapping(rom6)!.bankSwitch).toMatchObject({ bankCount: 6, fixedBank: 5, bits: 3 });
+    expect(prgMapping(rom6)!.warnings[0]).toContain('推定');
   });
 });
 

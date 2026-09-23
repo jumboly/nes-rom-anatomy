@@ -8,13 +8,13 @@ const PRG = 0x10;
 describe('crossRef: PRG-ROM', () => {
   it('NROM-256: one CPU address, same for the CPU view and the disassembly', () => {
     const x = crossRef(loadFixture('synthetic-nrom256.nes'), PRG + 0x4123);
-    expect(x).toMatchObject({ region: 'prg-rom', relative: 0x4123, cpu: [0xc123], disasm: [0xc123], disasmBasis: 'fixed' });
+    expect(x).toMatchObject({ region: 'prg-rom', relative: 0x4123, cpu: [{ cpu: 0xc123 }], disasm: [{ cpu: 0xc123 }], disasmBasis: 'fixed' });
   });
 
   it('NROM-128: the mirror gives two CPU addresses', () => {
     const x = crossRef(loadFixture('synthetic-nrom128.nes'), PRG + 0x0100);
-    expect(x.cpu).toEqual([0x8100, 0xc100]);
-    expect(x.disasm).toEqual([0x8100, 0xc100]);
+    expect(x.cpu).toEqual([{ cpu: 0x8100 }, { cpu: 0xc100 }]);
+    expect(x.disasm).toEqual([{ cpu: 0x8100 }, { cpu: 0xc100 }]);
   });
 
   it('names the vector bytes and targets', () => {
@@ -27,19 +27,25 @@ describe('crossRef: PRG-ROM', () => {
   it('Trainer: PRG starts 512 bytes later; the trainer itself maps to $7000', () => {
     const rom = loadFixture('synthetic-nrom256-trainer.nes');
     expect(crossRef(rom, PRG + 0x20)).toMatchObject({ region: 'trainer', trainerCpu: 0x7020, cpu: [], disasm: [] });
-    expect(crossRef(rom, PRG + 512)).toMatchObject({ region: 'prg-rom', relative: 0, cpu: [0x8000], roles: ['RESET の飛び先'] });
+    expect(crossRef(rom, PRG + 512)).toMatchObject({ region: 'prg-rom', relative: 0, cpu: [{ cpu: 0x8000 }], roles: ['RESET の飛び先'] });
   });
 
-  it('UxROM: no fixed CPU address, but the fixed last bank can be disassembled', () => {
-    const rom = romWith({ prgKiB: 128, mapper: 2, vectors: [0xc000, 0xc000, 0xc000] });
-    expect(crossRef(rom, PRG + 0x1c000)).toMatchObject({ cpu: null, disasm: [0xc000], disasmBasis: 'fixed-bank' });
-    // 切り替え bank 側は CPU のどこに見えるか決まらない
-    expect(crossRef(rom, PRG + 0x04000)).toMatchObject({ cpu: null, disasm: [], disasmBasis: null });
+  it('UxROM: a switchable-bank byte is visible at $8000- with its own bank', () => {
+    const rom = loadFixture('synthetic-uxrom.nes');
+    const x = crossRef(rom, PRG + 3 * 0x4000 + 0x0123);
+    expect(x).toMatchObject({ cpu: [{ cpu: 0x8123, bank: 3 }], disasm: [{ cpu: 0x8123, bank: 3 }], disasmBasis: 'fixed-bank' });
+  });
+
+  it('UxROM: a fixed-bank byte is at $C000- and, with the last bank switched in, also at $8000-', () => {
+    const rom = loadFixture('synthetic-uxrom.nes');
+    const x = crossRef(rom, PRG + 0x1c000);
+    expect(x.cpu).toEqual([{ cpu: 0x8000, bank: 7 }, { cpu: 0xc000 }]);
+    expect(x.roles).toEqual(['RESET の飛び先']);
   });
 
   it('MMC1: the assumed last bank is marked as such', () => {
     const rom = romWith({ prgKiB: 128, mapper: 1, vectors: [0xc000, 0xc000, 0xc000] });
-    expect(crossRef(rom, PRG + 0x1fffc)).toMatchObject({ disasm: [0xfffc], disasmBasis: 'assumed-bank' });
+    expect(crossRef(rom, PRG + 0x1fffc)).toMatchObject({ cpu: null, disasm: [{ cpu: 0xfffc }], disasmBasis: 'assumed-bank' });
   });
 
   it('a PRG byte beyond the 32 KiB NROM window is not visible', () => {

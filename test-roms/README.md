@@ -13,9 +13,10 @@
 | `synthetic-nrom128.nes` | iNES | 16 KiB | 8 KiB | なし | NROM-128 ミラー（Phase 3） |
 | `synthetic-nrom256-chrram.nes` | NES 2.0 | 32 KiB | なし（CHR-RAM 8 KiB 宣言） | なし | CHR-RAM カートリッジの表示 |
 | `synthetic-cnrom.nes` | iNES | 32 KiB | 32 KiB（4 bank） | なし | 複数 CHR bank の表示, Mapper 3（Phase 8） |
+| `synthetic-uxrom.nes` | iNES | 128 KiB（8 bank） | なし（CHR-RAM） | なし | Mapper 2 (UNROM) の PRG bank 切り替え（Phase 7） |
 
-共通: vertical mirroring, battery なし。Mapper は `synthetic-cnrom.nes` のみ 3、他は 0。
-PRG-ROM の内容はすべて同じ（CHR-RAM 版も、CHR-RAM へタイルを転送するコードは含まない）。
+共通: vertical mirroring, battery なし。Mapper は `synthetic-cnrom.nes` が 3、`synthetic-uxrom.nes` が 2、他は 0。
+PRG-ROM の内容は UxROM 以外すべて同じ（CHR-RAM 版も、CHR-RAM へタイルを転送するコードは含まない）。UxROM は下の別表。
 
 ### PRG-ROM の内容
 
@@ -28,6 +29,20 @@ PRG-ROM の内容はすべて同じ（CHR-RAM 版も、CHR-RAM へタイルを�
 | `$FFFA-$FFFF` | 末尾 6 byte | NMI=`$8100`, RESET=`$8000`, IRQ=`$8200` |
 
 未使用領域は `$FF`。
+
+### PRG-ROM の内容（synthetic-uxrom.nes）
+
+`$C000-$FFFF` は最終 bank (bank 7 = PRG `+$1C000`, File `$1C010`) に固定、`$8000-$BFFF` は切り替え bank。
+
+| CPU | 場所 | 内容 |
+| --- | --- | --- |
+| `$C000` | bank 7 | RESET: `SEI / CLD / LDX #$FF / TXS / LDA #$03 / TAY / STA $FE00,Y / JSR $8000 / loop: JMP $C00E`（bank 3 を入れて呼ぶ） |
+| `$C100` | bank 7 | NMI: `INC $00 / RTI` |
+| `$C200` | bank 7 | IRQ: `RTI` |
+| `$FE00-$FE07` | bank 7 | bank 番号表 `00 01 … 07`（bus conflict 回避用。`$FF00` は目印と重なるためその手前） |
+| `$8000` | bank 0〜6 | `LDA #n / STA $10 / RTS`（n = bank 番号。どの bank のコードかを operand で見分ける） |
+| bank n の `+$3F00` | 全 bank | ASCII `SYNTH PRG BANK n`（`$BF00` / 固定 bank は `$FF00`） |
+| `$FFFA-$FFFF` | bank 7 | NMI=`$C100`, RESET=`$C000`, IRQ=`$C200` |
 
 ### CHR-ROM の内容（tile index: pattern）
 
@@ -74,6 +89,7 @@ da65（cc65 付属の逆アセンブラ, `--cpu 6502x`）に逆アセンブル�
 | `nestest.log` | https://www.qmtpro.com/~nes/misc/nestest.log (kevtris) | `627c8e180b1a924dfa705c5dc6958fad7ab75a62de556173caf880ccc1337540` | 8991 行の実行トレース（逆アセンブルの正解） |
 | `nrom-template256.nes` | `tools/build-nrom-template.sh` でビルド | `217dab9800641fe6bdd221eb7cc7b3abc988db600530283430cd56bb77cf97ac` | iNES, Mapper 0, PRG 32 KiB, CHR 8 KiB, horizontal |
 | `nrom-template.nes` | 同上 | `b30dce8d2f816d712edbaa3660d01203122d7ef70079ff1158534a5ac5607745` | iNES, Mapper 0, PRG 16 KiB, CHR 8 KiB, horizontal |
+| `uorom-template.nes` | `tools/build-uorom-template.sh` でビルド | `496be489d926ef66ef820ae18a617b4cb3d8edf09dfd1e46e8b8f0dad6c235fd` | iNES, Mapper 2 (UOROM), PRG 256 KiB (16 bank), CHR-RAM, vertical |
 
 nestest は再配布条件が明示されていないため同梱しない。
 
@@ -106,3 +122,22 @@ pip install Pillow         # CHR 変換スクリプトが使う
 コードは `$8000-$82AA` のみで、NROM-256 版でも PRG 後半 16 KiB はほぼ未使用。
 
 当初候補の "Diamond-Chase" は所在を特定できなかったため、これを代替とした。
+
+### uorom-template（実在 Homebrew, UOROM）
+
+[pinobatch/snrom-template](https://github.com/pinobatch/snrom-template)（Damian Yerrick, GNU All-Permissive License）の
+UOROM 版 `uorom-template.nes`。同じソースから MMC1 版 (`snrom-template.nes`) も作れるが、ここでは UOROM 版だけを使う。
+nrom-template と同じ作者・ツールチェーンなので、ビルド手順（cc65, Python + Pillow）も同じ。
+
+```sh
+./tools/build-uorom-template.sh
+```
+
+コミット `78e2cad` に固定してビルドする。ソースと `mapalt.txt`（リンカの map）は `test-roms/external/snrom-template/` に残る。
+
+既知の値（mapalt.txt・ソースより）:
+
+- ベクタ: NMI = `$C000`, RESET = `$FFF0`（全 bank 共通のリセット処理の置き場所。UOROM では固定 bank にだけある）, IRQ = `$C003`
+- `setPRGBank` (`$C209`): `STA $1D / TAY / STA $C320,Y / RTS`。`$C320` は `identity16`（`00 01 … 0F`）で、bus conflict を避ける
+- リセット処理の最後で `LDA #4 / JSR setPRGBank / JMP main`。`main` は bank 4 の `$8000`
+- bank をまたぐ呼び出し表 `bankcall_table` (`$C330`): `draw_player_sprite_far` = bank 2 の `$8000`、`load_chr_ram_far` = bank 13 の `$A000`

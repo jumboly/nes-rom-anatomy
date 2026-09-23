@@ -26,6 +26,15 @@ export function hasFixedPrg(mapper: number): boolean {
 }
 
 /**
+ * PRG を bank 切り替えするが、「どの bank を入れたか」を 1 つ決めれば CPU への対応が完全に決まる Mapper。
+ * UxROM (2) は切り替え窓が $8000-$BFFF の 1 つだけで、残りは固定なので、bank 番号 1 つで表せる。
+ * MMC1 / MMC3 はモードやレジスタが複数あり、この形では表せないため含めない。
+ */
+export function hasSwitchablePrg(mapper: number): boolean {
+  return mapper === 2;
+}
+
+/**
  * bank 切り替えがある Mapper で、電源投入時に CPU 空間の末尾に見える PRG bank。
  * ベクタ ($FFFA-$FFFF) を読むには「起動直後にどの bank が末尾にあるか」だけ分かればよいので、
  * bank 切り替えの完全な対応（Phase 7 以降）より先に、この仮定だけでベクタを読めるようにする。

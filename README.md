@@ -16,7 +16,7 @@ ROM file offset → CHR bank → Mapper → PPU address → 8x8 tile
 
 ROM ファイルはブラウザ内だけで解析され、サーバーへは送信されません。
 
-## 現在の機能（Phase 1–6）
+## 現在の機能（Phase 1–7）
 
 - iNES / NES 2.0 ヘッダ解析（Mapper, Submapper, PRG/CHR-ROM, PRG/CHR-(NV)RAM, Mirroring, Battery, Trainer, Console type, Timing ほか）
 - Raw header の byte ごとの意味表示
@@ -36,12 +36,15 @@ ROM ファイルはブラウザ内だけで解析され、サーバーへは送�
 - ベクタの飛び先に最初の数命令を逆アセンブルして表示し、逆アセンブル表示へ移動
 - ビュー間の相互ナビゲーション: Hex で選んだ byte から CPU アドレス表示・逆アセンブル・Tile Inspector へ、逆アセンブルの operand（`STA $2000`, `LDA $C123,X` など）から CPU アドレス表示へ、CPU アドレス表示から逆アセンブル・ミラー側のアドレスへ移動。移動元の命令・タイル・ベクタの byte 範囲を Hex でハイライト
 - 移動はブラウザ履歴に積まれ、ブラウザの「戻る / 進む」で全ビューの表示とスクロール位置が戻る。URL の hash（`#disasm=C000`, `#hex=8010-801F`, `#cpu=FFFA`, `#chr=01029` など）を書き換えて移動することもできる（ROM は URL に入らないため、リロード後は無効）
+- Mapper 2 (UxROM) の PRG bank 切り替え: `$8000-$BFFF` に入れる bank を選ぶと、対応図（全 bank → 切り替え窓 / 固定窓）・CPU アドレス表示・逆アセンブルがその bank の中身になる。bank は `$03:8123` の形（デバッガと同じ bank:address 表記）で示し、URL hash にも入る（`#disasm=03:8123`）。Hex で選んだ byte からは、その byte の bank を入れた状態で開く
+- CPU アドレス表示で、切り替え窓のアドレスに各 bank を入れたら何が見えるかを一覧
+- 逆アセンブルで、`$8000-$FFFF` への `STA` / `STX` / `STY` を bank 選択として注記。bus conflict を避ける 0, 1, 2… のテーブルへの書き込み（`STA table,Y`）や、書く値と ROM の値の一致も示す
 
 PPU address は、Mapper を介さずに決まる場合（Mapper 0 かつ CHR 8 KiB）だけ表示します。
-CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM）で表示します。
+CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM）と、表示する bank を選んだ UxROM (2) で表示します。
 それ以外は bank 切り替え次第なので、対応するまでは「未対応」と表示します。
-ベクタだけは、電源投入時に CPU 空間の末尾に見える bank が分かれば読めるため、bank 切り替えのある Mapper でも表示します。
-逆アセンブルも同じ理由で、bank 切り替えのある Mapper では末尾 bank の範囲だけを対象にします。
+ベクタだけは、電源投入時に CPU 空間の末尾に見える bank が分かれば読めるため、bank 切り替えのある Mapper でも表示します（UxROM でも、表示用に選んだ bank ではなく固定 bank から読みます）。
+逆アセンブルも同じ理由で、UxROM 以外の bank 切り替えのある Mapper では末尾 bank の範囲だけを対象にします。
 
 ## 対応フォーマット
 
@@ -52,9 +55,9 @@ CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM�
 ## 対応 Mapper
 
 - ヘッダ解析・ファイル構造表示: すべての Mapper 番号
-- CPU アドレス対応: Mapper 0 (NROM), Mapper 3 (CNROM, PRG のみ)
+- CPU アドレス対応: Mapper 0 (NROM), Mapper 2 (UxROM, 表示する bank を選択), Mapper 3 (CNROM, PRG のみ)
 - ベクタ: すべての Mapper（Mapper 0 / 3 は確定、2 / 4 は固定 bank で確定、その他は末尾 bank と仮定した推定）
-- 逆アセンブル: Mapper 0 / 3 は $8000-$FFFF 全体、その他はベクタと同じ末尾 bank の範囲
+- 逆アセンブル: Mapper 0 / 3 は $8000-$FFFF 全体、Mapper 2 は選んだ bank + 固定 bank の $8000-$FFFF、その他はベクタと同じ末尾 bank の範囲
 - PPU アドレス対応: Mapper 0 (NROM, CHR 8 KiB)
 
 ## 今後の予定
@@ -66,7 +69,7 @@ CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM�
 | 4 | RESET / NMI / IRQ ベクタ（済） |
 | 5 | 6502 (Ricoh 2A03) 線形逆アセンブラ（済） |
 | 6 | ビュー間の相互ナビゲーション（済） |
-| 7 | Mapper 2 (UxROM) の PRG バンク切り替え可視化 |
+| 7 | Mapper 2 (UxROM) の PRG バンク切り替え可視化（済） |
 | 8 | Mapper 3 (CNROM) の CHR バンク切り替え可視化 |
 
 その先に MMC1 / MMC3、recursive traversal によるコード解析などを検討しています。
@@ -79,7 +82,8 @@ npm run dev        # http://localhost:5173
 npm test           # unit tests (vitest)
 npm run typecheck
 npm run gen:roms   # test-roms/synthetic-*.nes を再生成
-./tools/build-nrom-template.sh  # 実在 Homebrew ROM を test-roms/external/ にビルド（任意）
+./tools/build-nrom-template.sh  # 実在 Homebrew ROM (NROM) を test-roms/external/ にビルド（任意）
+./tools/build-uorom-template.sh # 実在 Homebrew ROM (UxROM) を test-roms/external/ にビルド（任意）
 ./tools/gen-opcode-golden.sh    # test-roms/da65-opcodes.txt（opcode 表の正解）を da65 で再生成（任意）
 ```
 
@@ -97,7 +101,7 @@ test-roms/                   テスト ROM（説明は test-roms/README.md）
 正しさは「期待される内部構造が完全に分かっている ROM」との比較で検証します。
 
 1. **Synthetic ROM**（同梱）: `tools/generate-test-rom.ts` で生成する自作 ROM。ヘッダ・コード・ベクタ・CHR タイルの期待値がすべて既知
-2. **実在 Homebrew ROM**: [pinobatch/nrom-template](https://github.com/pinobatch/nrom-template)（GNU All-Permissive）を固定コミットからビルドして使用（`tools/build-nrom-template.sh`）
+2. **実在 Homebrew ROM**: [pinobatch/nrom-template](https://github.com/pinobatch/nrom-template) と [pinobatch/snrom-template](https://github.com/pinobatch/snrom-template) の UOROM 版（どちらも GNU All-Permissive）を固定コミットからビルドして使用（`tools/build-nrom-template.sh`, `tools/build-uorom-template.sh`）
 3. **nestest.nes / nestest.log**: CPU テスト ROM (NROM-128) と実行トレース。再配布条件が明示されていないため **同梱せず**、取得方法のみ記載
 4. **da65 の出力**: 256 個の opcode を cc65 付属の逆アセンブラ da65 に逆アセンブルさせた結果（`test-roms/da65-opcodes.txt`）。opcode 表の正解
 

@@ -6,13 +6,22 @@
  * ここでは新しい対応を作らず、cpu-map / disasm / chr / vectors の関数を組み合わせるだけにする。
  */
 import { tileAtChrOffset, type TileByteRef } from './chr.ts';
-import { prgMapping, prgToCpu } from './cpu-map.ts';
+import { prgMapping, prgToCpu, type PrgMapping } from './cpu-map.ts';
 import { disasmMapping } from './disasm.ts';
 import { locateOffset, type NesRom, type RegionKind } from './rom.ts';
 import { readVectors, vectorLabelsAt, type VectorBasis } from './vectors.ts';
 
 /** Trainer はコピー機器が CPU $7000 へロードする前提のもの */
 export const TRAINER_CPU = 0x7000;
+
+/**
+ * CPU アドレス。bank は UxROM の切り替え窓 ($8000-$BFFF) に見えるアドレスのときだけ付き、
+ * 「その bank を入れた場合にこのアドレスに見える」ことを表す（CPU 表示・逆アセンブルをその bank で開くため）
+ */
+export interface CpuRef {
+  cpu: number;
+  bank?: number;
+}
 
 export interface FileOffsetXref {
   fileOffset: number;
@@ -23,9 +32,9 @@ export interface FileOffsetXref {
    * PRG-ROM の byte が CPU から見えるアドレス（ミラーがあると複数）。
    * PRG-ROM 以外、または CPU から見えない offset なら空。bank 切り替えで決まらない場合 null
    */
-  cpu: number[] | null;
-  /** 逆アセンブル表示で開ける CPU アドレス。bank 切り替えのある Mapper では末尾 bank の範囲だけ */
-  disasm: number[];
+  cpu: CpuRef[] | null;
+  /** 逆アセンブル表示で開ける CPU アドレス。UxROM 以外の bank 切り替えのある Mapper では末尾 bank の範囲だけ */
+  disasm: CpuRef[];
   /** disasm がどの前提の対応か（disasm が空なら null） */
   disasmBasis: VectorBasis | null;
   /** Trainer の byte がロードされる CPU アドレス */
@@ -48,13 +57,21 @@ export function crossRef(rom: NesRom, fileOffset: number): FileOffsetXref {
   if (kind === 'chr-rom') return { ...base, tile: tileAtChrOffset(relative) };
   if (kind !== 'prg-rom') return base;
 
-  const fixed = prgMapping(rom);
-  const d = disasmMapping(rom);
-  const disasm = d ? prgToCpu(d.mapping, relative) : [];
+  // UxROM は byte の属する bank を切り替え窓に入れた対応で引く。固定 bank の byte は $C000- に加え、
+  // 同じ bank を切り替え窓に入れた場合の $8000- にも見える
+  const sw = prgMapping(rom)?.bankSwitch;
+  const bank = sw ? Math.floor(relative / sw.size) : undefined;
+  const fixed = prgMapping(rom, bank);
+  const d = disasmMapping(rom, bank);
+  const refs = (m: PrgMapping): CpuRef[] => prgToCpu(m, relative).map((cpu) => {
+    const w = m.windows.find((x) => cpu >= x.cpuStart && cpu < x.cpuStart + x.size)!;
+    return w.switchable ? { cpu, bank: w.bank! } : { cpu };
+  });
+  const disasm = d ? refs(d.mapping) : [];
   const vectors = readVectors(rom);
   return {
     ...base,
-    cpu: fixed ? prgToCpu(fixed, relative) : null,
+    cpu: fixed ? refs(fixed) : null,
     disasm,
     disasmBasis: disasm.length ? d!.basis : null,
     roles: vectors ? vectorLabelsAt(vectors, fileOffset) : [],

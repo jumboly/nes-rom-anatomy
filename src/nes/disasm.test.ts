@@ -188,12 +188,53 @@ describe('stopping and partial instructions', () => {
   });
 
   it('bank-switching mapper: only the fixed last bank can be read (vector mapping)', () => {
-    // UxROM 128 KiB: $C000-$FFFF = 最終 bank。$8000-$BFFF は実行時の bank 次第で読めない
-    const rom = romWith({ prgKiB: 128, mapper: 2, vectors: [0xc000, 0xc000, 0xc000], put: { 0x1c000: [0x78, 0x4c, 0x00, 0x80] } });
+    // MMC1 128 KiB: 電源投入時に最終 bank が $C000-$FFFF にあると仮定した対応。$8000-$BFFF は実行時の bank 次第で読めない
+    const rom = romWith({ prgKiB: 128, mapper: 1, vectors: [0xc000, 0xc000, 0xc000], put: { 0x1c000: [0x78, 0x4c, 0x00, 0x80] } });
     const m = readVectors(rom)!.mapping;
     const d = disassemble(rom, m, 0xc000, 2);
     expect(d.lines.map((l) => [l.text, l.bytes[0]!.fileOffset])).toEqual([['SEI', 0x1c010], ['JMP $8000', 0x1c011]]);
     expect(disassemble(rom, m, 0x8000, 1).stop).toContain('読めない');
+  });
+});
+
+/** synthetic-uxrom.nes: RESET ($C000) が bank 3 を $8000 に入れ、JSR $8000 で呼ぶ */
+describe('disassemble: UxROM', () => {
+  const rom = loadFixture('synthetic-uxrom.nes');
+
+  it('reads the reset code in the fixed bank and explains the bank switch through the bank table', () => {
+    const d = disassemble(rom, disasmMapping(rom, 3)!.mapping, 0xc000, 9);
+    expect(d.lines.map((l) => l.text)).toEqual(['SEI', 'CLD', 'LDX #$FF', 'TXS', 'LDA #$03', 'TAY', 'STA $FE00,Y', 'JSR $8000', 'JMP $C00E']);
+    const store = d.lines[6]!;
+    expect(store.notes[0]).toBe('UNROM の bank 選択: A の下位 3 bit の bank が $8000-$BFFF に入る（ROM の中身は書き換わらない）。');
+    expect(store.notes[1]).toContain('bus conflict');
+    expect(store.notes[1]).toContain('0, 1, 2');
+  });
+
+  it('reads $8000 from the chosen bank', () => {
+    const line = (bank: number) => disassemble(rom, disasmMapping(rom, bank)!.mapping, 0x8000, 1, vectorLabels(readVectors(rom))).lines[0]!;
+    expect(line(3)).toMatchObject({ text: 'LDA #$03' });
+    expect(line(3).bytes[0]!.fileOffset).toBe(0x10 + 3 * 0x4000);
+    expect(line(5).text).toBe('LDA #$05');
+    // 最終 bank を切り替え窓に入れると、$8000 にも固定 bank のリセット処理が見える
+    expect(line(7)).toMatchObject({ text: 'SEI', labels: ['RESET'] });
+  });
+
+  it('a store to a fixed-bank address checks that the ROM value matches (bus conflict)', () => {
+    const r = romWith({ prgKiB: 128, mapper: 2, vectors: [0xc000, 0xc000, 0xc000], put: { 0x1c000: [0x8d, 0x10, 0xc0], 0x1c010: [0x05] } });
+    const [l] = disassemble(r, disasmMapping(r, 0)!.mapping, 0xc000, 1).lines;
+    expect(l!.notes).toEqual([
+      'UNROM の bank 選択: A の下位 3 bit の bank が $8000-$BFFF に入る（ROM の中身は書き換わらない）。',
+      'bus conflict のある基板では、書く値が $C010 の ROM の値 ($05) と一致していないと結果が不定になる。',
+    ]);
+  });
+
+  it('no bank-switch note for NROM or for loads', () => {
+    const nrom = loadFixture('synthetic-nrom256.nes');
+    const r = romWith({ prgKiB: 32, vectors: [0x8000, 0x8000, 0x8000], put: { 0: [0x8d, 0x00, 0x80] } });
+    expect(disassemble(r, fixed(r), 0x8000, 1).lines[0]!.notes).toEqual([]);
+    expect(disassemble(nrom, fixed(nrom), 0x8000, 1).lines[0]!.notes).toEqual([]);
+    const lda = romWith({ prgKiB: 128, mapper: 2, vectors: [0xc000, 0xc000, 0xc000], put: { 0x1c000: [0xad, 0x00, 0x80] } });
+    expect(disassemble(lda, disasmMapping(lda)!.mapping, 0xc000, 1).lines[0]!.notes).toEqual([]);
   });
 });
 
@@ -203,11 +244,13 @@ describe('disasmMapping', () => {
     expect(disasmMapping(rom)).toMatchObject({ basis: 'fixed', note: null, mapping: prgMapping(rom) });
   });
 
-  it('UxROM uses the fixed last bank; MMC1 the assumed last bank', () => {
-    const uxrom = disasmMapping(romWith({ prgKiB: 128, mapper: 2, vectors: [0xc000, 0xc000, 0xc000] }))!;
+  it('UxROM uses the chosen bank plus the fixed bank; MMC1 the assumed last bank', () => {
+    const rom = loadFixture('synthetic-uxrom.nes');
+    const uxrom = disasmMapping(rom, 2)!;
     expect(uxrom.basis).toBe('fixed-bank');
-    expect(uxrom.mapping.windows).toEqual([{ cpuStart: 0xc000, size: 0x4000, prgOffset: 0x1c000, mirror: false }]);
-    expect(uxrom.note).toContain('固定 bank');
+    expect(uxrom.mapping).toEqual(prgMapping(rom, 2));
+    expect(uxrom.note).toContain('bank 2');
+    expect(uxrom.note).toContain('固定 bank 7');
     const mmc1 = disasmMapping(romWith({ prgKiB: 128, mapper: 1, vectors: [0xc000, 0xc000, 0xc000] }))!;
     expect(mmc1.basis).toBe('assumed-bank');
     expect(mmc1.note).toContain('推定');

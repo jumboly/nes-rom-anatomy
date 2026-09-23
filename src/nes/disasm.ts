@@ -94,6 +94,37 @@ function operandText(op: Opcode, value: number, target: number | null): string {
   }
 }
 
+/** 書き込み命令。UxROM ではこれらで $8000-$FFFF に書くと bank が切り替わる */
+const STORES = new Set(['STA', 'STX', 'STY']);
+
+/**
+ * UxROM の bank 選択レジスタへの書き込みの説明。
+ * 逆アセンブル結果の `STA $C320,Y` は、それだけでは ROM に書こうとしている不可解な命令に見えるため。
+ * index 付きで書く先が 0, 1, 2… と並んだテーブルなら、bus conflict を避ける定番の形であることも示す。
+ */
+function bankWriteNotes(rom: NesRom, m: PrgMapping, op: Opcode, value: number): string[] {
+  const sw = m.bankSwitch;
+  if (!sw || !STORES.has(op.mnemonic) || value < 0x8000 || !(op.mode === 'abs' || op.mode === 'abx' || op.mode === 'aby')) return [];
+  const reg = op.mnemonic.slice(2);
+  const notes = [`${sw.board} の bank 選択: ${reg} の下位 ${sw.bits} bit の bank が $8000-$BFFF に入る（ROM の中身は書き換わらない）。`];
+  if (sw.busConflicts === false) return notes;
+  if (op.mode === 'abs') {
+    const b = readCpu(rom, m, value);
+    // 書き込み先が切り替え窓の中なら、そこの値は表示中の bank 次第なので断定しない
+    if (b?.value != null && value >= 0xc000) {
+      notes.push(`bus conflict のある基板では、書く値が ${hex4(value)} の ROM の値 (${hex2(b.value)}) と一致していないと結果が不定になる。`);
+    }
+    return notes;
+  }
+  const table = Array.from({ length: sw.bankCount }, (_, i) => readCpu(rom, m, value + i)?.value);
+  if (table.every((v, i) => v === i)) {
+    notes.push(`${hex4(value)} からは 0, 1, 2… と並んだテーブル。bank 番号と同じ値を持つ番地に書くことで、bus conflict（書く値と ROM の値の衝突）を避ける定番の形。`);
+  } else if (sw.busConflicts === true) {
+    notes.push('bus conflict のある基板では、書く値と書き込み先の ROM の値が一致している必要がある。');
+  }
+  return notes;
+}
+
 function notesFor(op: Opcode, value: number): string[] {
   const notes: string[] = [];
   if (op.jam) {
@@ -175,7 +206,7 @@ export function disassemble(rom: NesRom, m: PrgMapping, start: number, count: nu
       target,
       ref: REF_MODES.has(op.mode) ? value : null,
       labels,
-      notes: notesFor(op, value),
+      notes: [...notesFor(op, value), ...bankWriteNotes(rom, m, op, value)],
       flowEnds: FLOW_ENDS.has(op.mnemonic),
     });
     cpu += op.length;
@@ -199,17 +230,26 @@ export function vectorLabels(table: VectorTable | null): LabelLookup {
 export interface DisasmMapping {
   mapping: PrgMapping;
   basis: VectorBasis;
-  /** bank 切り替えのある Mapper で、読める範囲を限っている理由（固定の対応なら null） */
+  /** bank 切り替えのある Mapper で、読める範囲を限っている・bank を仮定している理由（固定の対応なら null） */
   note: string | null;
 }
 
 /**
- * 逆アセンブルに使う PRG の対応。PRG が固定の Mapper はそのまま、
- * bank 切り替えのある Mapper はベクタと同じ「末尾 bank だけ」の対応にする。
+ * 逆アセンブルに使う PRG の対応。PRG が固定の Mapper はそのまま、UxROM は切り替え窓に bank を入れた対応、
+ * それ以外の bank 切り替えのある Mapper はベクタと同じ「末尾 bank だけ」の対応にする。
  * 逆アセンブル表示と、Hex から逆アセンブルへのリンクが同じ範囲を対象にするよう、ここで一か所で決める。
  */
-export function disasmMapping(rom: NesRom): DisasmMapping | null {
-  const fixed = prgMapping(rom);
+export function disasmMapping(rom: NesRom, bank?: number): DisasmMapping | null {
+  const fixed = prgMapping(rom, bank);
+  if (fixed?.bankSwitch) {
+    const sw = fixed.bankSwitch;
+    return {
+      mapping: fixed,
+      basis: 'fixed-bank',
+      note: `$8000-$BFFF には、選んだ bank ${sw.bank} を入れた場合の中身を表示しています。実行時にどの bank が入っているかは、` +
+        `直前に $8000-$FFFF へ書き込まれた値で決まります。$C000-$FFFF は固定 bank ${sw.fixedBank} なので確定です。`,
+    };
+  }
   if (fixed) return fixed.windows.length ? { mapping: fixed, basis: 'fixed', note: null } : null;
   const v = readVectors(rom);
   if (!v) return null;

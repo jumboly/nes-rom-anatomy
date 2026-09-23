@@ -1,12 +1,12 @@
 /**
  * CPU アドレス空間 ($0000-$FFFF) と、PRG-ROM がそこにどう見えるか。
- * 仕様: https://www.nesdev.org/wiki/CPU_memory_map , https://www.nesdev.org/wiki/NROM
+ * 仕様: https://www.nesdev.org/wiki/CPU_memory_map , https://www.nesdev.org/wiki/NROM , https://www.nesdev.org/wiki/UxROM
  *
  * CPU から見えるのは「ファイル」ではなくカートリッジの配線結果なので、
  * ここでは PRG-ROM 先頭からの offset（PRG offset）と CPU アドレスを対応付け、
  * file offset への変換は rom.ts の領域情報に任せる。
  */
-import { hasFixedPrg } from './mapper.ts';
+import { hasFixedPrg, hasSwitchablePrg } from './mapper.ts';
 import { findRegion, type NesRom } from './rom.ts';
 
 export const PRG_WINDOW_START = 0x8000;
@@ -26,6 +26,35 @@ export interface PrgWindow {
   size: number;
   prgOffset: number;
   mirror: boolean;
+  /** bank 切り替えのある Mapper で、この窓に入っている 16 KiB bank の番号 */
+  bank?: number;
+  /** 実行時に書き換わる窓か（UxROM の $8000-$BFFF） */
+  switchable?: boolean;
+}
+
+/**
+ * UxROM の bank 切り替え。
+ * 回路は「$8000-$FFFF への書き込みの値をラッチに取り込み、その下位 bit を PRG の上位アドレス線にする」だけで、
+ * 固定側 ($C000-$FFFF) は上位アドレス線をすべて 1 にして最終 bank を選ぶ。
+ */
+export interface PrgBankSwitch {
+  /** 切り替え窓 */
+  cpuStart: number;
+  size: number;
+  bankCount: number;
+  /** この対応で切り替え窓に入れている bank（表示のために選んだもの。実行時の値ではない） */
+  bank: number;
+  /** $C000-$FFFF に固定されている bank */
+  fixedBank: number;
+  /** 書き込んだ値の下位何 bit が bank 番号になるか */
+  bits: number;
+  /** 基板の呼び名（UNROM / UOROM など） */
+  board: string;
+  /**
+   * bus conflict があるか。null はヘッダに情報が無い（iNES 1.0 / NES 2.0 submapper 0）。
+   * 書き込み時に ROM も同じ番地の値をバスに出すため、書く値と ROM の値が一致しないと結果が不定になる
+   */
+  busConflicts: boolean | null;
 }
 
 export interface PrgMapping {
@@ -33,20 +62,26 @@ export interface PrgMapping {
   /** 何が決め手でこの対応になるか（UI 表示用） */
   explanation: string;
   warnings: string[];
+  /** bank 切り替えのある Mapper で、どの bank を入れた対応か（固定の対応なら null） */
+  bankSwitch: PrgBankSwitch | null;
 }
 
 const isPowerOfTwo = (n: number) => n > 0 && (n & (n - 1)) === 0;
 
 /**
- * Mapper が PRG を固定で配線している場合の窓一覧。bank 切り替えがある Mapper は未対応で null。
+ * PRG-ROM の窓一覧。PRG を固定で配線している Mapper はそのまま、
+ * UxROM は切り替え窓に bank（省略時 0）を入れた場合の対応を返す。それ以外の bank 切り替えがある Mapper は未対応で null。
  * 対応はヘッダの宣言サイズで決める（ファイルが途中で切れていても、実機の配線は宣言サイズ通りのため）。
  */
-export function prgMapping(rom: NesRom): PrgMapping | null {
+export function prgMapping(rom: NesRom, bank?: number): PrgMapping | null {
   const { mapper, prgRomSize: size } = rom.header;
+  if (size === 0 && (hasFixedPrg(mapper) || hasSwitchablePrg(mapper))) {
+    return { windows: [], explanation: 'PRG-ROM がありません。', warnings: ['ヘッダの PRG-ROM サイズが 0 です。'], bankSwitch: null };
+  }
+  if (hasSwitchablePrg(mapper)) return uxromMapping(rom, bank ?? 0);
   if (!hasFixedPrg(mapper)) return null;
 
   const warnings: string[] = [];
-  if (size === 0) return { windows: [], explanation: 'PRG-ROM がありません。', warnings: ['ヘッダの PRG-ROM サイズが 0 です。'] };
   if (size > PRG_VISIBLE_MAX) {
     warnings.push(`PRG-ROM ${size / 1024} KiB のうち、CPU から見えるのは先頭 32 KiB だけです（Mapper ${mapper} は bank 切り替えを持たない）。`);
   }
@@ -69,7 +104,48 @@ export function prgMapping(rom: NesRom): PrgMapping | null {
     ? 'PRG-ROM の先頭 32 KiB がそのまま CPU $8000-$FFFF に並ぶ（NROM-256 型）。'
     : `PRG-ROM ${size / 1024} KiB に対して CPU の窓は 32 KiB あり、ROM チップに届かない上位アドレス線が無視されるため同じ中身が繰り返し見える（ミラー）。` +
       'ハードウェア上はどの窓も対等で、「ミラー」は低いアドレス側を基準にした便宜上の呼び方（プログラムがどちらのアドレスで動く前提かはリンク時に決まる）。';
-  return { windows, explanation, warnings };
+  return { windows, explanation, warnings, bankSwitch: null };
+}
+
+/** 切り替え窓・固定窓の大きさ。UxROM の bank は 16 KiB */
+export const UXROM_BANK_SIZE = 0x4000;
+
+const hex5 = (v: number) => `$${v.toString(16).toUpperCase().padStart(5, '0')}`;
+
+/**
+ * UxROM: $8000-$BFFF = 選んだ bank、$C000-$FFFF = 最終 bank（固定）。
+ * 範囲外の bank 番号は、実機と同じく「書いた値の下位 bit だけが効く」として bank 数で折り返す。
+ */
+function uxromMapping(rom: NesRom, requested: number): PrgMapping {
+  const { prgRomSize: size, submapper } = rom.header;
+  const bankCount = Math.max(1, Math.ceil(size / UXROM_BANK_SIZE));
+  const bank = ((requested % bankCount) + bankCount) % bankCount;
+  const fixedBank = bankCount - 1;
+  const bits = Math.ceil(Math.log2(bankCount));
+  const warnings: string[] = [];
+  if (size % UXROM_BANK_SIZE !== 0 || !isPowerOfTwo(bankCount)) {
+    // 下位 bit だけを見る回路では、bank 数が 2 のべき乗でないと「最終 bank」と「全 bit 1 の bank」が一致しない
+    warnings.push(`PRG-ROM サイズ ${size} byte は 16 KiB × 2 のべき乗ではないため、bank の割り当ては推定です。`);
+  }
+  // UNROM は 74HC161 の 3 bit（最大 128 KiB）、UOROM は 4 bit（256 KiB）。それより大きいものは互換基板・エミュレータ上の拡張
+  const board = bankCount <= 8 ? 'UNROM' : bankCount <= 16 ? 'UOROM' : 'UxROM 互換（大容量）';
+  // NES 2.0 の Mapper 2 submapper: 1 = bus conflict なし, 2 = あり。0 と iNES 1.0 は区別なし
+  const busConflicts = submapper === 1 ? false : submapper === 2 ? true : null;
+  const bankStart = (b: number) => b * UXROM_BANK_SIZE;
+  const windows: PrgWindow[] = [
+    { cpuStart: 0x8000, size: UXROM_BANK_SIZE, prgOffset: bankStart(bank), mirror: false, bank, switchable: true },
+    { cpuStart: 0xc000, size: UXROM_BANK_SIZE, prgOffset: bankStart(fixedBank), mirror: false, bank: fixedBank, switchable: false },
+  ];
+  const explanation =
+    `PRG-ROM ${size / 1024} KiB を 16 KiB の bank ${bankCount} 個に分け、$C000-$FFFF には最終 bank (bank ${fixedBank}) が常に見える。` +
+    `$8000-$BFFF に見える bank は、プログラムが $8000-$FFFF のどこかに書き込んだ値の下位 ${bits} bit で決まる（${board}）。` +
+    'どの bank が入っているかは実行時に変わるため、ここでは表示する bank を選んで対応を見る。';
+  return { windows, explanation, warnings, bankSwitch: { cpuStart: 0x8000, size: UXROM_BANK_SIZE, bankCount, bank, fixedBank, bits, board, busConflicts } };
+}
+
+/** bank の範囲の表記（例: "PRG +$0C000–$0FFFF"） */
+export function bankRange(bank: number, size = UXROM_BANK_SIZE): string {
+  return `PRG +${hex5(bank * size)}–${hex5(bank * size + size - 1)}`;
 }
 
 const windowAt = (m: PrgMapping, cpu: number) =>
@@ -177,6 +253,19 @@ function prgRomAreas(rom: NesRom, m: PrgMapping | null): CpuArea[] {
   }
   if (m.windows.length === 0) {
     return [{ start: 0x8000, end: 0xffff, kind: 'open-bus', label: 'PRG-ROM なし', cartridge: true, note: m.explanation }];
+  }
+  if (m.bankSwitch) {
+    const sw = m.bankSwitch;
+    return m.windows.map((w) => ({
+      start: w.cpuStart,
+      end: w.cpuStart + w.size - 1,
+      kind: 'prg-rom',
+      label: w.switchable ? `PRG-ROM bank ${w.bank}（切り替え, 表示中）` : `PRG-ROM bank ${w.bank}（固定）`,
+      cartridge: true,
+      note: w.switchable
+        ? `${bankRange(w.bank!)}。$8000-$FFFF への書き込みの値（下位 ${sw.bits} bit）で bank 0〜${sw.bankCount - 1} のどれかに切り替わる。`
+        : `${bankRange(w.bank!)}。最終 bank が常に見える。書き込むと bank 選択レジスタとして働く（ROM の中身は変わらない）。`,
+    }));
   }
   return m.windows.map((w) => {
     const prgEnd = w.prgOffset + w.size - 1;

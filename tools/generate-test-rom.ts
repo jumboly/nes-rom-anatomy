@@ -1,5 +1,5 @@
 /**
- * Synthetic NROM / CNROM test ROM generator.
+ * Synthetic NROM / CNROM / UxROM test ROM generator.
  *
  * このスクリプトは src/nes/ のパーサーを一切 import しない。
  * パーサーと同じ思い込み（バグ）を fixture 側にも埋め込んでしまうと、
@@ -20,10 +20,10 @@ export const TRAINER_SIZE = 512;
 export interface SyntheticRomOptions {
   /** 'ines' = iNES 1.0 header, 'nes2' = NES 2.0 header */
   format: 'ines' | 'nes2';
-  /** 0 = NROM, 3 = CNROM */
-  mapper: 0 | 3;
-  /** 16 KiB PRG banks: 1 = NROM-128, 2 = NROM-256 */
-  prgBanks: 1 | 2;
+  /** 0 = NROM, 2 = UxROM, 3 = CNROM */
+  mapper: 0 | 2 | 3;
+  /** 16 KiB PRG banks: 1 = NROM-128, 2 = NROM-256, 8 = UNROM (128 KiB) */
+  prgBanks: 1 | 2 | 8;
   /** 8 KiB CHR-ROM banks。0 = CHR-RAM カートリッジ（NES 2.0 では CHR-RAM 8 KiB を宣言） */
   chrBanks: 0 | 1 | 4;
   trainer: boolean;
@@ -76,6 +76,65 @@ export const bankMarker = (bank: number): number[] =>
 
 /** 未使用領域は EPROM 消去状態に倣って $FF。$00 だと BRK 命令に見えてしまい紛らわしい */
 const PRG_FILL = 0xff;
+
+// ---------------------------------------------------------------------------
+// UxROM (Mapper 2) の PRG-ROM
+// ---------------------------------------------------------------------------
+
+/**
+ * UxROM は $C000-$FFFF が最終 bank に固定され、$8000-$BFFF は $8000-$FFFF への書き込みで切り替わる。
+ * そのためリセット処理・割り込み処理・bank 番号表は最終 bank に置く（電源投入時に確実に見えるのはそこだけ）。
+ */
+export const UXROM_RESET_ADDR = 0xc000;
+export const UXROM_NMI_ADDR = 0xc100;
+export const UXROM_IRQ_ADDR = 0xc200;
+/**
+ * bank 番号表（0, 1, 2, …）。bus conflict を避けるため、書く値と同じ値の番地に書き込む。
+ * $FF00 は bank 目印（bank 先頭 + $3F00）と重なるため、その手前に置く
+ */
+export const UXROM_BANK_TABLE = 0xfe00;
+/** リセット処理が $8000-$BFFF に入れて JSR する bank */
+export const UXROM_CALLED_BANK = 3;
+
+// prettier-ignore
+export const UXROM_RESET_CODE = [
+  0x78,             // $C000  SEI
+  0xd8,             // $C001  CLD
+  0xa2, 0xff,       // $C002  LDX #$FF
+  0x9a,             // $C004  TXS
+  0xa9, UXROM_CALLED_BANK, // $C005  LDA #$03
+  0xa8,             // $C007  TAY
+  0x99, 0x00, 0xfe, // $C008  STA $FE00,Y   ; bank 3 を $8000-$BFFF へ
+  0x20, 0x00, 0x80, // $C00B  JSR $8000     ; bank 3 のルーチンを呼ぶ
+  0x4c, 0x0e, 0xc0, // $C00E  loop: JMP $C00E
+];
+
+/** 切り替え bank n の $8000 に置くルーチン。どの bank のコードが呼ばれたかを命令の operand で区別できるようにする */
+// prettier-ignore
+export const uxromBankRoutine = (bank: number) => [
+  0xa9, bank,       // $8000  LDA #n
+  0x85, 0x10,       // $8002  STA $10
+  0x60,             // $8004  RTS
+];
+
+function buildUxromPrg(banks: number): Uint8Array {
+  const prg = new Uint8Array(banks * PRG_BANK_SIZE).fill(PRG_FILL);
+  const last = (banks - 1) * PRG_BANK_SIZE;
+  // 固定 bank 内の CPU アドレス → PRG offset
+  const putFixed = (cpuAddr: number, bytes: number[]) => prg.set(bytes, last + cpuAddr - 0xc000);
+  putFixed(UXROM_RESET_ADDR, UXROM_RESET_CODE);
+  putFixed(UXROM_NMI_ADDR, NMI_CODE);
+  putFixed(UXROM_IRQ_ADDR, IRQ_CODE);
+  putFixed(UXROM_BANK_TABLE, Array.from({ length: banks }, (_, i) => i));
+
+  for (let b = 0; b < banks; b++) {
+    if (b !== banks - 1) prg.set(uxromBankRoutine(b), b * PRG_BANK_SIZE);
+    prg.set(bankMarker(b), b * PRG_BANK_SIZE + BANK_MARKER_OFFSET);
+  }
+  const le = (addr: number) => [addr & 0xff, addr >> 8];
+  prg.set([...le(UXROM_NMI_ADDR), ...le(UXROM_RESET_ADDR), ...le(UXROM_IRQ_ADDR)], prg.length - 6);
+  return prg;
+}
 
 function buildPrg(banks: number): Uint8Array {
   const prg = new Uint8Array(banks * PRG_BANK_SIZE).fill(PRG_FILL);
@@ -212,7 +271,7 @@ export function buildSyntheticRom(opts: SyntheticRomOptions): Uint8Array {
   const parts = [
     buildHeader(opts),
     ...(opts.trainer ? [buildTrainer()] : []),
-    buildPrg(opts.prgBanks),
+    opts.mapper === 2 ? buildUxromPrg(opts.prgBanks) : buildPrg(opts.prgBanks),
     ...(opts.chrBanks > 0 ? [buildChr(opts.chrBanks)] : []),
   ];
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
@@ -233,6 +292,8 @@ export const FIXTURES: Record<string, SyntheticRomOptions> = {
   // CHR-RAM は iNES 1.0 だとサイズを推定するしかないため、NES 2.0 で明示的に宣言する
   'synthetic-nrom256-chrram.nes': { format: 'nes2', mapper: 0, prgBanks: 2, chrBanks: 0, trainer: false },
   'synthetic-cnrom.nes': { format: 'ines', mapper: 3, prgBanks: 2, chrBanks: 4, trainer: false },
+  // 実在の UNROM と同じく CHR-RAM。iNES 1.0 は CHR-ROM 0 を CHR-RAM 8 KiB とみなす
+  'synthetic-uxrom.nes': { format: 'ines', mapper: 2, prgBanks: 8, chrBanks: 0, trainer: false },
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

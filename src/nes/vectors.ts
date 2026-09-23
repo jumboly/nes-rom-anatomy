@@ -76,12 +76,15 @@ function lastBankMapping(rom: NesRom, bankSize: number): PrgMapping {
     windows: [{ cpuStart: 0x10000 - size, size, prgOffset: prgSize - size, mirror: false }],
     explanation: '',
     warnings: [],
+    bankSwitch: null,
   };
 }
 
 function chooseMapping(rom: NesRom): Pick<VectorTable, 'basis' | 'mapping' | 'explanation' | 'warnings'> {
+  // UxROM も prgMapping で対応が出るが、それは「表示用に選んだ bank」を入れた対応なので、
+  // 電源投入時に確実に見える固定 bank だけで読む（ベクタの読み方が表示中の bank で変わらないように）
   const fixed = prgMapping(rom);
-  if (fixed) {
+  if (fixed && !fixed.bankSwitch) {
     return {
       basis: 'fixed',
       mapping: fixed,

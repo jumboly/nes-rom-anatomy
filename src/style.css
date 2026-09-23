@@ -23,7 +23,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system
 .topbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
 .topbar h1 { font-size: 16px; margin: 0 8px 0 0; }
 .button, button { font: inherit; padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); cursor: pointer; }
-.samples { display: flex; gap: 4px; align-items: center; color: var(--muted); }
+.samples { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; color: var(--muted); }
 .privacy { margin-left: auto; color: var(--muted); font-size: 12px; }
 
 main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
@@ -124,6 +124,12 @@ table { border-collapse: collapse; }
 .prg-window.mirror rect { fill: color-mix(in srgb, var(--prg) 8%, var(--card)); stroke-dasharray: 5 4; }
 .prg-band { fill: color-mix(in srgb, var(--prg) 18%, transparent); stroke: var(--prg); stroke-width: .75; }
 .prg-band.mirror { fill: color-mix(in srgb, var(--prg) 7%, transparent); stroke-dasharray: 4 3; }
+/* UxROM: 窓に入っていない bank は薄く、選んだ bank は太枠にして「今どれが見えているか」を目立たせる */
+.prg-source.idle rect { fill: color-mix(in srgb, var(--prg) 6%, var(--card)); stroke-opacity: .45; }
+.prg-source.selected rect { stroke-width: 2.5; }
+.prg-band.fixed { fill: color-mix(in srgb, var(--prg) 10%, transparent); }
+.bank-select select { font: inherit; font-family: var(--mono); max-width: 100%; }
+.bank-values { display: flex; flex-wrap: wrap; gap: 2px 10px; }
 .cpu-lookup { margin-bottom: 4px; }
 .cpu-lookup .kv { margin: 4px 0; }
 .cpu-bytes { display: flex; flex-wrap: wrap; gap: 0; font-size: 13px; }

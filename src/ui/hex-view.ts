@@ -1,6 +1,6 @@
-import { crossRef } from '../nes/xref.ts';
+import { crossRef, type CpuRef } from '../nes/xref.ts';
 import { locateOffset, type NesRom } from '../nes/rom.ts';
-import { el, hex } from './format.ts';
+import { cpuText, el, hex } from './format.ts';
 import type { Navigator } from './nav.ts';
 import { REGION_LABEL } from './regions.ts';
 
@@ -38,8 +38,8 @@ export function createHexView(rom: NesRom, data: Uint8Array, nav: Navigator): HT
     return hit ? `region-${hit.region.kind}` : '';
   };
 
-  const links = (addrs: number[], to: (a: number) => Parameters<Navigator['go']>[0]) =>
-    addrs.flatMap((a, i) => [...(i ? [' / '] : []), nav.link(to(a), addr(a))]);
+  const links = (refs: CpuRef[], view: 'cpu' | 'disasm') =>
+    refs.flatMap((r, i) => [...(i ? [' / '] : []), nav.link({ view, ...r }, cpuText(r.cpu, r.bank))]);
 
   /** file offset → ほかの視点での位置。ファイルと CPU / PPU の両方の視点を同じ場所で見せ、そのまま移動できるようにする */
   function describe(offset: number): (Node | string)[] {
@@ -56,13 +56,15 @@ export function createHexView(rom: NesRom, data: Uint8Array, nav: Navigator): HT
     if (x.region === 'prg-rom') {
       if (x.cpu === null) {
         line(`CPU: Mapper ${rom.header.mapper} の bank 切り替え次第`,
-          ...(x.disasm.length ? [`（${x.disasmBasis === 'fixed-bank' ? '固定 bank' : '推定の末尾 bank'} では ${x.disasm.map(addr).join(' / ')}）`] : []));
+          ...(x.disasm.length ? [`（${x.disasmBasis === 'fixed-bank' ? '固定 bank' : '推定の末尾 bank'} では ${x.disasm.map((r) => addr(r.cpu)).join(' / ')}）`] : []));
       } else if (x.cpu.length) {
-        line('CPU: ', ...links(x.cpu, (cpu) => ({ view: 'cpu', cpu })));
+        const bank = x.cpu.find((r) => r.bank !== undefined)?.bank;
+        // bank 付きのアドレスは「その bank を切り替え窓に入れたとき」だけ見える。固定の窓との違いを文章でも添える
+        line('CPU: ', ...links(x.cpu, 'cpu'), ...(bank === undefined ? [] : [`（$${hex(bank, 2)}:xxxx は $8000-$BFFF に bank ${bank} を入れたとき）`]));
       } else {
         line('CPU からは見えない');
       }
-      if (x.disasm.length) line('逆アセンブル: ', ...links(x.disasm, (cpu) => ({ view: 'disasm', cpu })));
+      if (x.disasm.length) line('逆アセンブル: ', ...links(x.disasm, 'disasm'));
     }
     if (x.tile) {
       const t = x.tile;

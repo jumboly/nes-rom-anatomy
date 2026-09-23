@@ -115,3 +115,40 @@ describe('synthetic-cnrom.nes raw layout', () => {
     expect(hex(rom.subarray(bank3 + 12 * 16, bank3 + 13 * 16))).toBe(`${three} ${three}`);
   });
 });
+
+/**
+ * synthetic-uxrom.nes（UNROM 128 KiB = 8 bank, CHR-RAM）の生バイト。
+ * 固定 bank (bank 7) は PRG offset $1C000 = File $1C010 から。
+ */
+describe('synthetic-uxrom.nes raw layout', () => {
+  const rom = load('synthetic-uxrom.nes');
+  const FIXED = 0x10 + 0x1c000;
+
+  it('has an iNES header for Mapper 2 with 8 PRG banks and no CHR-ROM', () => {
+    expect(rom.length).toBe(16 + 0x20000);
+    expect(hex(rom.subarray(0, 16))).toBe('4e 45 53 1a 08 00 21 00 00 00 00 00 00 00 00 00');
+  });
+
+  it('starts the fixed bank with the reset code that switches to bank 3 and calls it', () => {
+    // SEI / CLD / LDX #$FF / TXS / LDA #$03 / TAY / STA $FE00,Y / JSR $8000 / JMP $C00E
+    expect(hex(rom.subarray(FIXED, FIXED + 17))).toBe('78 d8 a2 ff 9a a9 03 a8 99 00 fe 20 00 80 4c 0e c0');
+    expect(hex(rom.subarray(FIXED + 0x100, FIXED + 0x103))).toBe('e6 00 40');
+    expect(hex(rom.subarray(FIXED + 0x200, FIXED + 0x201))).toBe('40');
+  });
+
+  it('has the bank table at $FE00 and the vectors at the end of the file', () => {
+    expect(hex(rom.subarray(FIXED + 0x3e00, FIXED + 0x3e08))).toBe('00 01 02 03 04 05 06 07');
+    // NMI=$C100, RESET=$C000, IRQ=$C200
+    expect(hex(rom.subarray(rom.length - 6))).toBe('00 c1 00 c0 00 c2');
+  });
+
+  it('puts LDA #n / STA $10 / RTS at $8000 of every switchable bank, and a marker in every bank', () => {
+    for (let b = 0; b < 7; b++) {
+      expect(hex(rom.subarray(0x10 + b * 0x4000, 0x10 + b * 0x4000 + 5))).toBe(`a9 0${b} 85 10 60`);
+    }
+    for (let b = 0; b < 8; b++) {
+      const o = 0x10 + b * 0x4000 + 0x3f00;
+      expect(new TextDecoder().decode(rom.subarray(o, o + 16))).toBe(`SYNTH PRG BANK ${b}`);
+    }
+  });
+});

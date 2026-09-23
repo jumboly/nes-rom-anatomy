@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { decodePatternTable, locateTile } from './chr.ts';
 import { prgMapping, prgToCpu, readCpu } from './cpu-map.ts';
-import { disassemble, vectorLabels } from './disasm.ts';
+import { disasmMapping, disassemble, vectorLabels } from './disasm.ts';
 import { parseRom, type NesRom } from './rom.ts';
 import { readVectors } from './vectors.ts';
 
@@ -35,6 +35,10 @@ const NROM_TEMPLATE_256_SHA256 = '217dab9800641fe6bdd221eb7cc7b3abc988db60053028
 const NROM_TEMPLATE_128_SHA256 = 'b30dce8d2f816d712edbaa3660d01203122d7ef70079ff1158534a5ac5607745';
 const nromTemplate256 = loadExternal('nrom-template256.nes', NROM_TEMPLATE_256_SHA256);
 const nromTemplate128 = loadExternal('nrom-template.nes', NROM_TEMPLATE_128_SHA256);
+
+// uorom-template は tools/build-uorom-template.sh でビルドする（SHA-256 は nrom-template と同じツールチェーンでの値）
+const UOROM_TEMPLATE_SHA256 = '496be489d926ef66ef820ae18a617b4cb3d8edf09dfd1e46e8b8f0dad6c235fd';
+const uoromTemplate = loadExternal('uorom-template.nes', UOROM_TEMPLATE_SHA256);
 
 const NESTEST_SHA256 = 'f67d55fd6b3cf0bad1cc85f1df0d739c65b53e79cecb7fea8f77ec0eadab0004';
 const nestest = loadExternal('nestest.nes', NESTEST_SHA256);
@@ -270,5 +274,72 @@ describe.each([
     expect(lines[2]!.notes).toEqual(['PPUCTRL']);
     // vwait1 ループの分岐先は、その直前の BIT PPUSTATUS
     expect(lines[14]!.target).toBe(lines[13]!.cpu);
+  });
+});
+
+/**
+ * uorom-template.nes（pinobatch/snrom-template の UOROM 版, Mapper 2, PRG 256 KiB = 16 bank, CHR-RAM）。
+ * 期待値は mapalt.txt と src/unrom.s・src/init.s・src/main.s・src/bankcalltable.s から手で読んだもの:
+ *   nmi_handler $C000, irq_handler $C003, reset_handler $C004, setPRGBank $C209, bankcall $C211,
+ *   STUB15 (resetstub_entry) $FFF0, identity16 $C320, bankcall_table $C330,
+ *   main = bank 4 の $8000, load_chr_ram_far = bank 13 の $A000
+ */
+describe.skipIf(!uoromTemplate)('uorom-template.nes (UOROM, pinobatch)', () => {
+  // skipIf でもテスト収集のため describe の本体は実行されるので、ROM が無い環境（CI）ではここで抜ける
+  if (!uoromTemplate) return;
+  const rom = parseRom(uoromTemplate);
+  const text = (bank: number, cpu: number, n: number) =>
+    disassemble(rom, disasmMapping(rom, bank)!.mapping, cpu, n, vectorLabels(readVectors(rom))).lines;
+
+  it('is an iNES Mapper 2 ROM with 16 PRG banks and CHR-RAM', () => {
+    expect(rom.header).toMatchObject({ format: 'iNES', mapper: 2, prgRomSize: 256 * 1024, chrRomSize: 0, mirroring: 'vertical' });
+    expect(prgMapping(rom)!.bankSwitch).toMatchObject({ bankCount: 16, fixedBank: 15, bits: 4, board: 'UOROM' });
+  });
+
+  it('reads the vectors from the fixed bank: NMI $C000, RESET $FFF0 (reset stub), IRQ $C003', () => {
+    const v = readVectors(rom)!;
+    expect(v.basis).toBe('fixed-bank');
+    expect(v.entries.map((e) => e.target!.cpu)).toEqual([0xc000, 0xfff0, 0xc003]);
+    expect(v.entries[1]!.lo!.fileOffset).toBe(0x10 + 15 * 0x4000 + 0x3ffc);
+  });
+
+  // unrom.s の resetstub_in: sei / ldx #$FF / txs / stx $FFF2 / jmp reset_handler。
+  // stx $FFF2 は MMC1 版と共通のリセット処理だが、UOROM では bank 15 を選ぶ書き込みになる（$FFF2 の ROM の値も $FF）
+  it('disassembles the reset stub and explains stx $FFF2 as a bank select whose value matches the ROM byte', () => {
+    const lines = text(0, 0xfff0, 5);
+    expect(lines.map((l) => l.text)).toEqual(['SEI', 'LDX #$FF', 'TXS', 'STX $FFF2', 'JMP $C004']);
+    expect(lines[0]!.labels).toEqual(['RESET']);
+    expect(lines[3]!.notes).toEqual([
+      'UOROM の bank 選択: X の下位 4 bit の bank が $8000-$BFFF に入る（ROM の中身は書き換わらない）。',
+      'bus conflict のある基板では、書く値が $FFF2 の ROM の値 ($FF) と一致していないと結果が不定になる。',
+    ]);
+  });
+
+  // setPRGBank: sta lastPRGBank / tay / sta identity16,y / rts
+  it('finds the identity16 table used by setPRGBank', () => {
+    const lines = text(0, 0xc209, 4);
+    expect(lines.map((l) => l.text)).toEqual(['STA $1D', 'TAY', 'STA $C320,Y', 'RTS']);
+    expect(lines[2]!.notes[1]).toContain('$C320 からは 0, 1, 2… と並んだテーブル');
+  });
+
+  // init.s の最後: lda #4 / jsr setPRGBank / jmp main
+  it('switches to bank 4 and jumps to main at $8000, which only makes sense with bank 4 selected', () => {
+    const tail = text(0, 0xc004, 40).map((l) => l.text);
+    const at = tail.indexOf('LDA #$04');
+    expect(tail.slice(at, at + 3)).toEqual(['LDA #$04', 'JSR $C209', 'JMP $8000']);
+    // main: jsr load_main_palette / ldx #load_chr_ram (= 3) / jsr bankcall
+    const main = text(4, 0x8000, 3);
+    expect(main[0]!.op!.mnemonic).toBe('JSR');
+    expect(main.slice(1).map((l) => l.text)).toEqual(['LDX #$03', 'JSR $C211']);
+    expect(main[0]!.bytes[0]!.fileOffset).toBe(0x10 + 4 * 0x4000);
+    // 別の bank を入れると、同じ $8000 に別のコードが見える（bank 2 は draw_player_sprite_far）
+    expect(text(2, 0x8000, 1)[0]!.bytes[0]!.fileOffset).toBe(0x10 + 2 * 0x4000);
+  });
+
+  it('has the bankcall table: draw_player_sprite_far-1 in bank 2, load_chr_ram_far-1 in bank 13', () => {
+    const m = prgMapping(rom, 0)!;
+    expect(Array.from({ length: 6 }, (_, i) => readCpu(rom, m, 0xc330 + i)!.value)).toEqual([0xff, 0x7f, 0x02, 0xff, 0x9f, 0x0d]);
+    // load_chr_ram_far は bank 13 の $A000 = PRG +$36000
+    expect(readCpu(rom, prgMapping(rom, 13)!, 0xa000)!.prgOffset).toBe(13 * 0x4000 + 0x2000);
   });
 });

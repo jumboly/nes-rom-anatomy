@@ -87,6 +87,16 @@ describe('bank-switching mappers: read from the last bank', () => {
     expect(irq!.notes.join()).toContain('bank');
   });
 
+  it('synthetic-uxrom.nes: vectors do not depend on the bank chosen for display', () => {
+    const t = vectorsOf(load('synthetic-uxrom.nes'));
+    expect(t.basis).toBe('fixed-bank');
+    expect(t.entries.map((e) => [e.name, e.target!.cpu, e.target!.hit!.fileOffset])).toEqual([
+      ['NMI', 0xc100, 0x1c110], ['RESET', 0xc000, 0x1c010], ['IRQ', 0xc200, 0x1c210],
+    ]);
+    // 固定 bank だけの窓で読むので、$C000 の byte の別名は $C000 だけ（切り替え窓に bank 7 を入れた $8000 は含めない）
+    expect(t.entries[1]!.target!.aliases).toEqual([0xc000]);
+  });
+
   it('MMC3 (4): the last 8 KiB bank is fixed at $E000', () => {
     const rom = romWith({ prgKiB: 128, mapper: 4, vectors: [0xe010, 0xe000, 0xc000] });
     const t = vectorsOf(rom);
