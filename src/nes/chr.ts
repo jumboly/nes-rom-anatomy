@@ -92,3 +92,31 @@ export function locateTile(rom: NesRom, bank: number, patternTable: 0 | 1, tileI
     available: chrOffset + TILE_BYTES <= region.available,
   };
 }
+
+export interface TileByteRef {
+  bank: number;
+  patternTable: 0 | 1;
+  tileIndex: number;
+  /** タイル内の byte 位置 (0-15)。0-7 = plane 0, 8-15 = plane 1 */
+  byteInTile: number;
+  /** その byte が担うピクセル行 (0-7) */
+  row: number;
+  plane: 0 | 1;
+}
+
+/**
+ * CHR offset → その byte が属するタイルと、タイル内での役割。locateTile の逆。
+ * Hex で選んだ CHR の byte を Tile Inspector で開くため、どの行のどの plane かまで返す。
+ */
+export function tileAtChrOffset(chrOffset: number): TileByteRef {
+  const inBank = chrOffset % CHR_BANK_BYTES;
+  const byteInTile = chrOffset % TILE_BYTES;
+  return {
+    bank: Math.floor(chrOffset / CHR_BANK_BYTES),
+    patternTable: inBank < PATTERN_TABLE_BYTES ? 0 : 1,
+    tileIndex: Math.floor((inBank % PATTERN_TABLE_BYTES) / TILE_BYTES),
+    byteInTile,
+    row: byteInTile % TILE_SIZE,
+    plane: byteInTile < TILE_SIZE ? 0 : 1,
+  };
+}

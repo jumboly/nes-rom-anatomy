@@ -1,5 +1,6 @@
 import type { NesRom } from '../nes/rom.ts';
 import { el, formatSize, hex } from './format.ts';
+import type { Navigator } from './nav.ts';
 import { REGION_DESCRIPTION, REGION_LABEL } from './regions.ts';
 
 /**
@@ -7,7 +8,7 @@ import { REGION_DESCRIPTION, REGION_LABEL } from './regions.ts';
  * Header (16 B) と PRG (32 KiB) は 2000 倍以上サイズが違うので、純粋な比例幅だと
  * Header が見えなくなる。最小幅を確保し、その旨を注記する。
  */
-export function renderLayout(rom: NesRom, onSelect: (offset: number) => void): HTMLElement {
+export function renderLayout(rom: NesRom, nav: Navigator): HTMLElement {
   const bar = el('div', { class: 'layout-bar' });
   const table = el('table', { class: 'regions' },
     el('tr', {}, el('th', {}, '領域'), el('th', {}, 'File offset'), el('th', {}, 'Size'), el('th', {}, '説明')));
@@ -21,11 +22,10 @@ export function renderLayout(rom: NesRom, onSelect: (offset: number) => void): H
       style: `flex-grow: ${r.size}`,
       title: `${REGION_LABEL[r.kind]}\n${range}\n${formatSize(r.size)}`,
     }, el('strong', {}, REGION_LABEL[r.kind]), el('span', {}, formatSize(r.size)), el('span', { class: 'offset' }, `@ $${hex(r.offset, 4)}`));
-    seg.addEventListener('click', () => onSelect(r.offset));
+    seg.addEventListener('click', () => nav.go({ view: 'hex', offset: r.offset, length: 1 }));
     bar.append(seg);
 
-    const link = el('a', { href: '#hex-view' }, range);
-    link.addEventListener('click', (e) => { e.preventDefault(); onSelect(r.offset); });
+    const link = nav.link({ view: 'hex', offset: r.offset, length: 1 }, range);
     table.append(el('tr', {},
       el('td', {}, el('span', { class: `swatch region-${r.kind}` }), REGION_LABEL[r.kind]),
       el('td', { class: 'mono' }, link),

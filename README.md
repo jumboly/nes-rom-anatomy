@@ -14,7 +14,7 @@ ROM file offset → CHR bank → Mapper → PPU address → 8x8 tile
 
 ROM ファイルはブラウザ内だけで解析され、サーバーへは送信されません。
 
-## 現在の機能（Phase 1–5）
+## 現在の機能（Phase 1–6）
 
 - iNES / NES 2.0 ヘッダ解析（Mapper, Submapper, PRG/CHR-ROM, PRG/CHR-(NV)RAM, Mirroring, Battery, Trainer, Console type, Timing ほか）
 - Raw header の byte ごとの意味表示
@@ -32,6 +32,8 @@ ROM ファイルはブラウザ内だけで解析され、サーバーへは送�
 - bank 切り替えのある Mapper のベクタは末尾 bank から読む（UxROM / MMC3 は配線で確定、それ以外は「推定」と明示）
 - 6502 (Ricoh 2A03) 線形逆アセンブラ: CPU アドレスから命令を順に読む。CPU address / File offset / byte 列 / 命令、非公式命令（斜体）・JAM・`.byte` の区別、PPU / APU / I/O レジスタ名、分岐・JMP・JSR の飛び先をたどる（戻る付き）、RESET / NMI / IRQ から開始
 - ベクタの飛び先に最初の数命令を逆アセンブルして表示し、逆アセンブル表示へ移動
+- ビュー間の相互ナビゲーション: Hex で選んだ byte から CPU アドレス表示・逆アセンブル・Tile Inspector へ、逆アセンブルの operand（`STA $2000`, `LDA $C123,X` など）から CPU アドレス表示へ、CPU アドレス表示から逆アセンブル・ミラー側のアドレスへ移動。移動元の命令・タイル・ベクタの byte 範囲を Hex でハイライト
+- 移動はブラウザ履歴に積まれ、ブラウザの「戻る / 進む」で全ビューの表示とスクロール位置が戻る。URL の hash（`#disasm=C000`, `#hex=8010-801F`, `#cpu=FFFA`, `#chr=01029` など）を書き換えて移動することもできる（ROM は URL に入らないため、リロード後は無効）
 
 PPU address は、Mapper を介さずに決まる場合（Mapper 0 かつ CHR 8 KiB）だけ表示します。
 CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM）で表示します。
@@ -61,7 +63,7 @@ CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM�
 | 3 | PRG-ROM ↔ CPU アドレス空間 (NROM-128 ミラー / NROM-256)（済） |
 | 4 | RESET / NMI / IRQ ベクタ（済） |
 | 5 | 6502 (Ricoh 2A03) 線形逆アセンブラ（済） |
-| 6 | ビュー間の相互ナビゲーション |
+| 6 | ビュー間の相互ナビゲーション（済） |
 | 7 | Mapper 2 (UxROM) の PRG バンク切り替え可視化 |
 | 8 | Mapper 3 (CNROM) の CHR バンク切り替え可視化 |
 
@@ -84,7 +86,7 @@ npm run gen:roms   # test-roms/synthetic-*.nes を再生成
 ```text
 tools/generate-test-rom.ts   Synthetic ROM generator（パーサーとは独立に実装）
 src/nes/                     解析ロジック（DOM 非依存, unit test 対象）
-src/ui/                      表示（素の DOM）
+src/ui/                      表示（素の DOM）。ビュー間の移動は src/ui/nav.ts（ブラウザ履歴）を通す
 test-roms/                   テスト ROM（説明は test-roms/README.md）
 ```
 

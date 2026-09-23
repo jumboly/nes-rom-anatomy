@@ -8,6 +8,7 @@ import { el, formatSize } from './ui/format.ts';
 import { renderHeader } from './ui/header-view.ts';
 import { createHexView } from './ui/hex-view.ts';
 import { renderLayout } from './ui/layout-view.ts';
+import { createNavigator, type Navigator } from './ui/nav.ts';
 import { renderVectorView } from './ui/vector-view.ts';
 
 // Vite にバンドルさせることで、サーバー無しの静的ホスティングでもサンプルを開けるようにする
@@ -18,18 +19,22 @@ const SAMPLE_URLS = import.meta.glob('../test-roms/synthetic-*.nes', {
 }) as Record<string, string>;
 
 const app = document.querySelector<HTMLElement>('#app')!;
+/** ROM を開き直したら、前の ROM の履歴項目に反応しないよう Navigator ごと作り直す */
+let nav: Navigator | null = null;
 
 function show(name: string, data: Uint8Array) {
   try {
     const rom = parseRom(data);
     const h = rom.header;
-    const hexView = createHexView(rom, data);
-    const disasmView = createDisasmView(rom, hexView.jumpTo);
+    nav?.dispose();
+    nav = createNavigator();
     const summary = el('div', { class: 'summary' },
       el('strong', {}, name), ' ',
       [h.format, `Mapper ${h.mapper}${mapperName(h.mapper) ? ` (${mapperName(h.mapper)})` : ''}`, `PRG ${formatSize(h.prgRomSize)}`,
         h.chrRomSize ? `CHR ${formatSize(h.chrRomSize)}` : 'CHR-RAM'].join(' | '));
-    app.replaceChildren(summary, renderHeader(h), renderLayout(rom, hexView.jumpTo), renderCpuView(rom, hexView.jumpTo), renderVectorView(rom, hexView.jumpTo, disasmView.showAt), disasmView.element, renderChrView(rom, hexView.jumpTo), hexView.element);
+    // ビューは互いに直接参照せず、nav に登録した handler 経由で移動する（どの順に作っても循環しないように）
+    app.replaceChildren(summary, renderHeader(h), renderLayout(rom, nav), renderCpuView(rom, nav), renderVectorView(rom, nav),
+      createDisasmView(rom, nav), renderChrView(rom, nav), createHexView(rom, data, nav));
     document.title = `${name} — NES ROM Anatomy`;
   } catch (e) {
     const msg = e instanceof HeaderError ? e.message : `解析中にエラーが発生しました: ${String(e)}`;

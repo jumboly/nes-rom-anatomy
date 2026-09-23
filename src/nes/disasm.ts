@@ -7,10 +7,10 @@
  * そのため開始位置が命令の途中だったり、途中にデータがあったりすると、それらしいが誤った命令列になる。
  * byte は ROM ファイルではなく cpu-map.ts の対応を通して読むので、CPU から見たアドレス・ミラーのまま命令が並ぶ。
  */
-import { readCpu, type CpuByte, type PrgMapping } from './cpu-map.ts';
-import { OPCODES, type Opcode } from './opcodes.ts';
+import { prgMapping, readCpu, type CpuByte, type PrgMapping } from './cpu-map.ts';
+import { OPCODES, type AddressingMode, type Opcode } from './opcodes.ts';
 import type { NesRom } from './rom.ts';
-import type { VectorTable } from './vectors.ts';
+import { readVectors, type VectorBasis, type VectorTable } from './vectors.ts';
 
 export interface DisasmLine {
   cpu: number;
@@ -22,6 +22,12 @@ export interface DisasmLine {
   text: string;
   /** 分岐・JMP abs・JSR の飛び先。ビュー内で飛び先へ移動できるようにするため */
   target: number | null;
+  /**
+   * operand が指す 16 bit の番地（absolute 系と JMP (ind) のみ）。
+   * データの読み書き先（テーブル・レジスタ・ポインタ）を CPU アドレス表示で引けるようにするため。
+   * JMP / JSR abs では target と同じ値になる
+   */
+  ref: number | null;
   /** この位置を指すベクタなどのラベル（例: "RESET"） */
   labels: string[];
   notes: string[];
@@ -112,9 +118,11 @@ function notesFor(op: Opcode, value: number): string[] {
 }
 
 const FLOW_ENDS = new Set(['RTS', 'RTI', 'JMP', 'JAM']);
+/** ゼロページ系は常に内蔵 RAM を指すので、番地として引く価値が薄く対象にしない */
+const REF_MODES = new Set<AddressingMode>(['abs', 'abx', 'aby', 'ind']);
 
 function dataLine(b: CpuByte, labels: string[], why: string): DisasmLine {
-  return { cpu: b.cpu, bytes: [b], op: null, text: `.byte ${hex2(b.value!)}`, target: null, labels, notes: [why], flowEnds: false };
+  return { cpu: b.cpu, bytes: [b], op: null, text: `.byte ${hex2(b.value!)}`, target: null, ref: null, labels, notes: [why], flowEnds: false };
 }
 
 /**
@@ -165,6 +173,7 @@ export function disassemble(rom: NesRom, m: PrgMapping, start: number, count: nu
       op,
       text: operand ? `${op.mnemonic} ${operand}` : op.mnemonic,
       target,
+      ref: REF_MODES.has(op.mode) ? value : null,
       labels,
       notes: notesFor(op, value),
       flowEnds: FLOW_ENDS.has(op.mnemonic),
@@ -185,4 +194,32 @@ export function vectorLabels(table: VectorTable | null): LabelLookup {
     if (hit) byOffset.set(hit.prgOffset, [...(byOffset.get(hit.prgOffset) ?? []), e.name]);
   }
   return (b) => byOffset.get(b.prgOffset) ?? [];
+}
+
+export interface DisasmMapping {
+  mapping: PrgMapping;
+  basis: VectorBasis;
+  /** bank 切り替えのある Mapper で、読める範囲を限っている理由（固定の対応なら null） */
+  note: string | null;
+}
+
+/**
+ * 逆アセンブルに使う PRG の対応。PRG が固定の Mapper はそのまま、
+ * bank 切り替えのある Mapper はベクタと同じ「末尾 bank だけ」の対応にする。
+ * 逆アセンブル表示と、Hex から逆アセンブルへのリンクが同じ範囲を対象にするよう、ここで一か所で決める。
+ */
+export function disasmMapping(rom: NesRom): DisasmMapping | null {
+  const fixed = prgMapping(rom);
+  if (fixed) return fixed.windows.length ? { mapping: fixed, basis: 'fixed', note: null } : null;
+  const v = readVectors(rom);
+  if (!v) return null;
+  const w = v.mapping.windows[0]!;
+  const range = `${hex4(w.cpuStart)}-$FFFF`;
+  return {
+    mapping: v.mapping,
+    basis: v.basis,
+    note: v.basis === 'fixed-bank'
+      ? `Mapper ${rom.header.mapper} は PRG を bank 切り替えするため、逆アセンブルできるのは固定 bank の ${range} だけです（それより下は実行時の bank 次第）。`
+      : `Mapper ${rom.header.mapper} は PRG を bank 切り替えするため、電源投入時に ${range} に見えていると仮定した末尾 bank だけを逆アセンブルします（推定）。`,
+  };
 }

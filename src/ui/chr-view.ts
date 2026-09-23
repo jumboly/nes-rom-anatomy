@@ -9,10 +9,12 @@ import {
   decodePatternTable,
   decodeTile,
   locateTile,
+  tileAtChrOffset,
   type TileLocation,
 } from '../nes/chr.ts';
 import type { NesRom } from '../nes/rom.ts';
 import { el, formatSize, hex } from './format.ts';
+import type { Navigator } from './nav.ts';
 import { PALETTES, rgbOf, type Palette } from './palettes.ts';
 
 const INSPECTOR_CELL = 22;
@@ -24,6 +26,8 @@ const PALETTE_NOTE =
 interface Selection {
   table: 0 | 1;
   tile: number;
+  /** Hex から来たときの、タイル内の byte 位置 (0-15)。その byte が担う行を Inspector で示すため */
+  byte: number | null;
 }
 
 /**
@@ -112,7 +116,7 @@ function renderInspector(
   bank: number,
   sel: Selection,
   palette: Palette,
-  onJump: (offset: number) => void,
+  nav: Navigator,
 ): HTMLElement {
   const loc = locateTile(rom, bank, sel.table, sel.tile);
   const pixels = decodeTile(rom.chrRom, loc.chrOffset);
@@ -144,18 +148,20 @@ function renderInspector(
   for (let y = 0; y < 8; y++) {
     const lo = rom.chrRom[loc.chrOffset + y];
     const hi = rom.chrRom[loc.chrOffset + y + 8];
-    const cell = (v: number | undefined, rel: number) =>
-      v === undefined ? '— (ファイル外)' : `+${hex(rel, 1)} $${hex(v, 2)} ${bin8(v)}`;
+    // byte ごとに Hex へ移動できるようにし、plane 0 / 1 の byte がファイル上で 8 byte 離れていることを確かめられるようにする
+    const cell = (v: number | undefined, rel: number) => el('td', { class: sel.byte === rel ? 'hl' : '' },
+      v === undefined ? '— (ファイル外)' : nav.link({ view: 'hex', offset: loc.fileOffset + rel, length: 1 }, `+${hex(rel, 1)} $${hex(v, 2)} ${bin8(v)}`));
+    const rowHit = sel.byte !== null && sel.byte % 8 === y;
     bytes.append(el('tr', {},
       el('td', {}, String(y)),
-      el('td', {}, cell(lo, y)),
-      el('td', {}, cell(hi, y + 8)),
-      el('td', {}, [...pixels.subarray(y * 8, y * 8 + 8)].join(''))));
+      cell(lo, y),
+      cell(hi, y + 8),
+      el('td', { class: rowHit ? 'hl' : '' }, [...pixels.subarray(y * 8, y * 8 + 8)].join(''))));
   }
 
-  const fileLink = el('a', { href: '#hex-view', class: 'mono' },
+  const fileLink = nav.link({ view: 'hex', offset: loc.fileOffset, length: TILE_BYTES },
     `$${hex(loc.fileOffset, 6)}–$${hex(loc.fileOffset + TILE_BYTES - 1, 6)}`);
-  fileLink.addEventListener('click', (e) => { e.preventDefault(); onJump(loc.fileOffset); });
+  fileLink.classList.add('mono');
 
   const tableBase = `$${hex(sel.table * PATTERN_TABLE_BYTES, 4)}`;
   const info = el('table', { class: 'kv' },
@@ -165,7 +171,7 @@ function renderInspector(
     el('tr', {}, el('th', {}, 'PPU address'), el('td', { class: 'mono' }, ppuText(loc, rom))),
   );
 
-  return el('div', { class: 'tile-inspector' },
+  return el('div', { class: 'tile-inspector', id: 'tile-inspector' },
     el('h3', {}, 'Tile Inspector'),
     info,
     canvas,
@@ -195,7 +201,7 @@ function renderChrRam(rom: NesRom): HTMLElement {
   );
 }
 
-export function renderChrView(rom: NesRom, onJump: (fileOffset: number) => void): HTMLElement {
+export function renderChrView(rom: NesRom, nav: Navigator): HTMLElement {
   if (rom.header.chrRomSize === 0) return renderChrRam(rom);
 
   const banks = chrBankCount(rom);
@@ -203,7 +209,7 @@ export function renderChrView(rom: NesRom, onJump: (fileOffset: number) => void)
   let palette = PALETTES[0]!;
   let scale = 2;
   let grid = true;
-  let selected: Selection = { table: 0, tile: 0 };
+  let selected: Selection = { table: 0, tile: 0, byte: null };
 
   const canvases = [el('canvas', { class: 'pattern-table' }), el('canvas', { class: 'pattern-table' })] as const;
   const captions = [el('figcaption', { class: 'mono' }), el('figcaption', { class: 'mono' })] as const;
@@ -244,7 +250,7 @@ export function renderChrView(rom: NesRom, onJump: (fileOffset: number) => void)
       el('span', { class: 'palette-swatch mono', title: palette.nesColors ? `NES color $${hex(palette.nesColors[v]!, 2)}` : '' },
         el('span', { class: 'swatch', style: `background:${c}` }),
         palette.nesColors ? `${v}=$${hex(palette.nesColors[v]!, 2)}` : `${v}`)));
-    inspectorHost.replaceChildren(renderInspector(rom, bank, selected, palette, onJump));
+    inspectorHost.replaceChildren(renderInspector(rom, bank, selected, palette, nav));
   }
 
   for (const t of [0, 1] as const) {
@@ -259,14 +265,37 @@ export function renderChrView(rom: NesRom, onJump: (fileOffset: number) => void)
     canvas.addEventListener('click', (e) => {
       const tile = tileAt(canvas, e);
       if (tile === null) return;
-      selected = { table: t, tile };
+      selected = { table: t, tile, byte: null };
       draw();
+      nav.record({ view: 'chr', chrOffset: locateTile(rom, bank, t, tile).chrOffset, highlight: false });
     });
   }
-  bankSelect.addEventListener('change', () => { bank = Number(bankSelect.value); decodeBank(); draw(); });
+  bankSelect.addEventListener('change', () => {
+    bank = Number(bankSelect.value);
+    decodeBank();
+    draw();
+    nav.record({ view: 'chr', chrOffset: locateTile(rom, bank, selected.table, selected.tile).chrOffset, highlight: false });
+  });
   paletteSelect.addEventListener('change', () => { palette = PALETTES[Number(paletteSelect.value)]!; draw(); });
   scaleSelect.addEventListener('change', () => { scale = Number(scaleSelect.value); draw(); });
   gridToggle.addEventListener('change', () => { grid = gridToggle.checked; draw(); });
+
+  nav.on('chr', ({ chrOffset, highlight }) => {
+    if (chrOffset >= rom.header.chrRomSize) return null;
+    const t = tileAtChrOffset(chrOffset);
+    if (t.bank !== bank) {
+      bank = t.bank;
+      bankSelect.value = String(bank);
+      decodeBank();
+    }
+    selected = { table: t.patternTable, tile: t.tileIndex, byte: highlight ? t.byteInTile : null };
+    draw();
+    return section;
+  }, () => ({
+    view: 'chr',
+    chrOffset: locateTile(rom, bank, selected.table, selected.tile).chrOffset + (selected.byte ?? 0),
+    highlight: selected.byte !== null,
+  }));
 
   decodeBank();
   draw();
@@ -276,7 +305,7 @@ export function renderChrView(rom: NesRom, onJump: (fileOffset: number) => void)
       `CHR-ROM は ${banks} 個の 8 KiB bank からなります。PPU $0000-$1FFF にどの bank が見えるかは Mapper ${rom.header.mapper} の bank 切り替えで決まるため、ここではファイル上の bank 単位で表示しています。`)
     : '';
 
-  return el('section', { class: 'card', id: 'chr-view' },
+  const section = el('section', { class: 'card', id: 'chr-view' },
     el('h2', {}, 'CHR — Pattern Tables'),
     el('div', { class: 'chr-controls' },
       banks > 1 ? el('label', {}, 'Bank ', bankSelect) : '',
@@ -295,4 +324,5 @@ export function renderChrView(rom: NesRom, onJump: (fileOffset: number) => void)
         hover),
       inspectorHost),
   );
+  return section;
 }

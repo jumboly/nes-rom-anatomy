@@ -5,7 +5,7 @@ import {
   CHR_TILES,
   chrBankMarkerPixel,
 } from '../../tools/generate-test-rom.ts';
-import { chrBankCount, decodePatternTable, decodeTile, locateTile } from './chr.ts';
+import { chrBankCount, decodePatternTable, decodeTile, locateTile, tileAtChrOffset } from './chr.ts';
 import { parseRom } from './rom.ts';
 
 const load = (name: string) =>
@@ -131,5 +131,23 @@ describe('synthetic-cnrom.nes (4 CHR banks)', () => {
   it('keeps the test tiles only in bank 0', () => {
     expect([...decodeTile(rom.chrRom, 8 * 16)]).toEqual(Array(64).fill(3));
     expect([...decodeTile(rom.chrRom, 0x2000 + 8 * 16)]).toEqual(Array(64).fill(0));
+  });
+});
+
+describe('tileAtChrOffset', () => {
+  it('is the inverse of locateTile for every byte of sample tiles', () => {
+    const rom = load('synthetic-cnrom.nes');
+    for (const [bank, table, tile] of [[0, 0, 0], [0, 1, 255], [3, 0, 12], [2, 1, 0x7f]] as const) {
+      const { chrOffset } = locateTile(rom, bank, table, tile);
+      for (let i = 0; i < 16; i++) {
+        expect(tileAtChrOffset(chrOffset + i)).toMatchObject({ bank, patternTable: table, tileIndex: tile, byteInTile: i });
+      }
+    }
+  });
+
+  it('bytes 0-7 are plane 0 rows 0-7, bytes 8-15 are plane 1 rows 0-7', () => {
+    expect(tileAtChrOffset(0x0007)).toMatchObject({ row: 7, plane: 0 });
+    expect(tileAtChrOffset(0x0008)).toMatchObject({ row: 0, plane: 1 });
+    expect(tileAtChrOffset(0x3fff)).toMatchObject({ bank: 1, patternTable: 1, tileIndex: 255, row: 7, plane: 1 });
   });
 });

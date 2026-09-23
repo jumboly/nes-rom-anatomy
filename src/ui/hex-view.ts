@@ -1,23 +1,22 @@
-import { prgMapping, prgToCpu } from '../nes/cpu-map.ts';
+import { crossRef } from '../nes/xref.ts';
 import { locateOffset, type NesRom } from '../nes/rom.ts';
-import { readVectors, vectorLabelsAt } from '../nes/vectors.ts';
 import { el, hex } from './format.ts';
+import type { Navigator } from './nav.ts';
 import { REGION_LABEL } from './regions.ts';
 
 const BYTES_PER_ROW = 16;
 const ROW_HEIGHT = 20;
 const VISIBLE_ROWS = 24;
+/** 移動先の行を viewport の最上段にすると直前の byte が見えないため、数行の余白を残す */
+const CONTEXT_ROWS = 2;
 
-export interface HexView {
-  element: HTMLElement;
-  jumpTo(offset: number): void;
-}
+const addr = (v: number) => `$${hex(v, 4)}`;
 
 /**
  * 仮想スクロールの Hex viewer。
  * 数百 KiB 〜数 MiB の ROM を全行 DOM 化すると重いため、見えている行だけを描画する。
  */
-export function createHexView(rom: NesRom, data: Uint8Array): HexView {
+export function createHexView(rom: NesRom, data: Uint8Array, nav: Navigator): HTMLElement {
   const totalRows = Math.ceil(data.length / BYTES_PER_ROW);
   const viewport = el('div', { class: 'hex-viewport', style: `height:${VISIBLE_ROWS * ROW_HEIGHT}px` });
   const spacer = el('div', { style: `height:${totalRows * ROW_HEIGHT}px; position:relative` });
@@ -25,22 +24,13 @@ export function createHexView(rom: NesRom, data: Uint8Array): HexView {
   spacer.append(rowsHost);
   viewport.append(spacer);
 
-  const status = el('div', { class: 'hex-status mono' }, 'byte をクリックすると所属領域と相対 offset を表示');
+  const status = el('div', { class: 'hex-status mono' }, 'byte をクリックすると所属領域と、CPU アドレス・逆アセンブル・タイルでの位置を表示');
   const gotoInput = el('input', { type: 'text', placeholder: 'offset (例: 8010)', class: 'mono', size: '14' });
   const gotoForm = el('form', { class: 'hex-goto' }, 'File offset: $', gotoInput, el('button', { type: 'submit' }, 'Go'));
 
   let selected = -1;
-  const mapping = prgMapping(rom);
-  const vectors = readVectors(rom);
-
-  /** file offset → CPU から見えるアドレス。ファイルと CPU の両方の視点を同じ場所で見せるため */
-  function cpuText(kind: string, relative: number): string {
-    if (kind === 'trainer') return `  →  CPU $${hex(0x7000 + relative, 4)}（コピー機器がロードした場合）`;
-    if (kind !== 'prg-rom') return '';
-    if (!mapping) return `  →  CPU: Mapper ${rom.header.mapper} の bank 切り替え次第`;
-    const cpus = prgToCpu(mapping, relative);
-    return cpus.length ? `  →  CPU ${cpus.map((c) => `$${hex(c, 4)}`).join(' / ')}` : '  →  CPU からは見えない';
-  }
+  /** 命令・タイル・ベクタなど、移動元が指していた byte 範囲。選択した 1 byte だけでなく塊として見せるため */
+  let range = { start: -1, end: -1 };
 
   // 領域は高々 6 個なので byte ごとの線形探索で十分（表示中の ~400 byte 分しか呼ばれない）
   const regionClass = (offset: number) => {
@@ -48,16 +38,39 @@ export function createHexView(rom: NesRom, data: Uint8Array): HexView {
     return hit ? `region-${hit.region.kind}` : '';
   };
 
-  function describe(offset: number): string {
-    const hit = locateOffset(rom, offset);
-    const where = hit
-      ? `${REGION_LABEL[hit.region.kind]} + $${hex(hit.relative, 4)}`
-      : '（どの領域にも属さない）';
-    const cpu = hit ? cpuText(hit.region.kind, hit.relative) : '';
+  const links = (addrs: number[], to: (a: number) => Parameters<Navigator['go']>[0]) =>
+    addrs.flatMap((a, i) => [...(i ? [' / '] : []), nav.link(to(a), addr(a))]);
+
+  /** file offset → ほかの視点での位置。ファイルと CPU / PPU の両方の視点を同じ場所で見せ、そのまま移動できるようにする */
+  function describe(offset: number): (Node | string)[] {
+    const x = crossRef(rom, offset);
+    const where = x.region ? `${REGION_LABEL[x.region]} + $${hex(x.relative, 4)}` : '（どの領域にも属さない）';
     // ベクタの byte や飛び先は「ただの PRG の 1 byte」に見えてしまうため、役割を添える
-    const labels = vectors ? vectorLabelsAt(vectors, offset) : [];
-    const role = labels.length ? `  [${labels.join(', ')}]` : '';
-    return `File $${hex(offset, 6)} = $${hex(data[offset]!, 2)}  →  ${where}${cpu}${role}`;
+    const role = x.roles.length ? `  [${x.roles.join(', ')}]` : '';
+    const lines: HTMLElement[] = [el('div', {}, `File $${hex(offset, 6)} = $${hex(data[offset]!, 2)}  →  ${where}${role}`)];
+    const line = (...c: (Node | string)[]) => lines.push(el('div', { class: 'hex-xref' }, '→ ', ...c));
+
+    if (x.trainerCpu !== null) {
+      line('CPU ', nav.link({ view: 'cpu', cpu: x.trainerCpu }, addr(x.trainerCpu)), '（コピー機器がロードした場合）');
+    }
+    if (x.region === 'prg-rom') {
+      if (x.cpu === null) {
+        line(`CPU: Mapper ${rom.header.mapper} の bank 切り替え次第`,
+          ...(x.disasm.length ? [`（${x.disasmBasis === 'fixed-bank' ? '固定 bank' : '推定の末尾 bank'} では ${x.disasm.map(addr).join(' / ')}）`] : []));
+      } else if (x.cpu.length) {
+        line('CPU: ', ...links(x.cpu, (cpu) => ({ view: 'cpu', cpu })));
+      } else {
+        line('CPU からは見えない');
+      }
+      if (x.disasm.length) line('逆アセンブル: ', ...links(x.disasm, (cpu) => ({ view: 'disasm', cpu })));
+    }
+    if (x.tile) {
+      const t = x.tile;
+      const text = `bank ${t.bank} / pattern table $${hex(t.patternTable * 0x1000, 4)} 側 / Tile $${hex(t.tileIndex, 2)} の ${t.row} 行目・plane ${t.plane}`;
+      const loc = { view: 'chr', chrOffset: x.relative, highlight: true } as const;
+      line('CHR: ', nav.canShow(loc) ? nav.link(loc, text) : text);
+    }
+    return lines;
   }
 
   function render() {
@@ -73,7 +86,8 @@ export function createHexView(rom: NesRom, data: Uint8Array): HexView {
         const offset = base + i;
         if (offset >= data.length) break;
         const b = data[offset]!;
-        const cls = `${regionClass(offset)}${offset === selected ? ' selected' : ''}`;
+        const mark = offset === selected ? ' selected' : offset >= range.start && offset <= range.end ? ' in-range' : '';
+        const cls = `${regionClass(offset)}${mark}`;
         const cell = el('span', { class: cls, 'data-offset': String(offset) }, hex(b, 2));
         bytesEl.append(cell);
         asciiEl.append(el('span', { class: cls }, b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.'));
@@ -83,28 +97,36 @@ export function createHexView(rom: NesRom, data: Uint8Array): HexView {
     }
   }
 
-  function select(offset: number) {
+  function select(offset: number, length: number) {
     selected = offset;
-    status.textContent = describe(offset);
+    range = { start: offset, end: offset + length - 1 };
+    status.replaceChildren(...describe(offset));
     render();
   }
 
-  function jumpTo(offset: number) {
+  nav.on('hex', ({ offset, length }) => {
     const clamped = Math.max(0, Math.min(offset, data.length - 1));
-    viewport.scrollTop = Math.floor(clamped / BYTES_PER_ROW) * ROW_HEIGHT;
-    select(clamped);
-    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+    const row = Math.floor(clamped / BYTES_PER_ROW);
+    const top = viewport.scrollTop / ROW_HEIGHT;
+    // 既に見えている byte なら viewport を動かさない（近くの byte 同士の行き来で表示が跳ねないように）
+    if (row < top || row >= top + VISIBLE_ROWS) viewport.scrollTop = Math.max(0, row - CONTEXT_ROWS) * ROW_HEIGHT;
+    select(clamped, Math.max(1, Math.min(length, data.length - clamped)));
+    return element;
+  }, () => (selected < 0 ? null : { view: 'hex', offset: selected, length: range.end - range.start + 1 }));
 
   viewport.addEventListener('scroll', render);
   rowsHost.addEventListener('click', (e) => {
     const target = (e.target as HTMLElement).closest('[data-offset]');
-    if (target) select(Number(target.getAttribute('data-offset')));
+    if (!target) return;
+    const offset = Number(target.getAttribute('data-offset'));
+    select(offset, 1);
+    nav.record({ view: 'hex', offset, length: 1 });
   });
   gotoForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const v = parseInt(gotoInput.value.replace(/^\$|^0x/i, ''), 16);
-    if (!Number.isNaN(v)) jumpTo(v);
+    // 範囲外の値は端に寄せてから移動する（hash と実際に選ばれる byte を一致させるため）
+    if (!Number.isNaN(v)) nav.go({ view: 'hex', offset: Math.max(0, Math.min(v, data.length - 1)), length: 1 });
   });
 
   const element = el('section', { class: 'card', id: 'hex-view' },
@@ -114,5 +136,5 @@ export function createHexView(rom: NesRom, data: Uint8Array): HexView {
     status,
   );
   render();
-  return { element, jumpTo };
+  return element;
 }

@@ -2,7 +2,8 @@ import type { CpuByte } from '../nes/cpu-map.ts';
 import { disassemble } from '../nes/disasm.ts';
 import type { NesRom } from '../nes/rom.ts';
 import { readVectors, type VectorEntry, type VectorTable } from '../nes/vectors.ts';
-import { el, hex } from './format.ts';
+import { el, fileSpan, hex } from './format.ts';
+import type { Navigator } from './nav.ts';
 
 const addr = (v: number) => `$${hex(v, 4)}`;
 
@@ -15,9 +16,9 @@ const BASIS_LABEL: Record<VectorTable['basis'], string> = {
   'assumed-bank': '推定',
 };
 
-function fileLink(fileOffset: number, onJump: (fileOffset: number) => void): HTMLAnchorElement {
-  const a = el('a', { href: '#hex-view', class: 'mono' }, `$${hex(fileOffset, 6)}`);
-  a.addEventListener('click', (e) => { e.preventDefault(); onJump(fileOffset); });
+function fileLink(nav: Navigator, offset: number, length = 1): HTMLAnchorElement {
+  const a = nav.link({ view: 'hex', offset, length }, `$${hex(offset, 6)}`);
+  a.classList.add('mono');
   return a;
 }
 
@@ -25,7 +26,7 @@ function fileLink(fileOffset: number, onJump: (fileOffset: number) => void): HTM
  * $FFFA-$FFFF の 6 byte を横に並べ、2 byte ずつの組がどのアドレスになるかを見せる。
  * little endian（下位 byte が先）は文章で読むより、並びと結果を並べた方が伝わりやすいため。
  */
-function renderVectorBytes(t: VectorTable, onJump: (fileOffset: number) => void): HTMLElement {
+function renderVectorBytes(t: VectorTable, nav: Navigator): HTMLElement {
   const strip = el('div', { class: 'vector-strip' });
   for (const e of t.entries) {
     const cell = (b: CpuByte | null, cpu: number, role: string) => {
@@ -33,7 +34,7 @@ function renderVectorBytes(t: VectorTable, onJump: (fileOffset: number) => void)
         el('small', {}, addr(cpu)),
         el('span', { class: 'mono' }, b?.value == null ? '--' : hex(b.value, 2)),
         el('small', {}, role));
-      if (b) c.addEventListener('click', () => onJump(b.fileOffset));
+      if (b) c.addEventListener('click', () => nav.go({ view: 'hex', offset: b.fileOffset, length: 1 }));
       else c.disabled = true;
       return c;
     };
@@ -46,36 +47,39 @@ function renderVectorBytes(t: VectorTable, onJump: (fileOffset: number) => void)
   return strip;
 }
 
-function renderEntry(rom: NesRom, table: VectorTable, e: VectorEntry, onJump: (fileOffset: number) => void, onDisasm: (cpu: number) => void): HTMLElement {
+function renderEntry(rom: NesRom, table: VectorTable, e: VectorEntry, nav: Navigator): HTMLElement {
   const rows: HTMLTableRowElement[] = [];
   const row = (k: string, ...v: (Node | string)[]) => rows.push(el('tr', {}, el('th', {}, k), el('td', {}, ...v)));
 
-  row('ベクタの位置', el('span', { class: 'mono' }, `CPU ${addr(e.cpu)}–${addr(e.cpu + 1)}`),
-    ...(e.lo ? [' / File ', fileLink(e.lo.fileOffset, onJump)] : []));
+  row('ベクタの位置', el('span', { class: 'mono' }, 'CPU ', nav.link({ view: 'cpu', cpu: e.cpu }, `${addr(e.cpu)}–${addr(e.cpu + 1)}`)),
+    ...(e.lo ? [' / File ', fileLink(nav, e.lo.fileOffset, e.hi ? fileSpan([e.lo, e.hi]) : 1)] : []));
   if (e.lo?.value != null && e.hi?.value != null && e.target) {
     row('値', el('span', { class: 'mono' }, `${hex(e.lo.value, 2)} ${hex(e.hi.value, 2)} → ${addr(e.target.cpu)}`), el('span', { class: 'hint' }, '（下位 byte が先）'));
   }
 
   const t = e.target;
   if (t) {
-    row('飛び先', el('span', { class: 'mono' }, addr(t.cpu)), ` ${t.where}`);
+    // 飛び先が RAM やレジスタでも、CPU アドレス表示ならその領域が何かを説明できる
+    row('飛び先', el('span', { class: 'mono' }, nav.link({ view: 'cpu', cpu: t.cpu }, addr(t.cpu))), ` ${t.where}`);
     if (t.hit) {
       row('PRG offset', el('span', { class: 'mono' }, `+$${hex(t.hit.prgOffset, t.hit.prgOffset > 0xffff ? 5 : 4)}`));
-      row('File offset', fileLink(t.hit.fileOffset, onJump));
-      if (t.aliases.length > 1) row('ミラー', el('span', { class: 'mono' }, t.aliases.map(addr).join(' / ')));
+      row('File offset', fileLink(nav, t.hit.fileOffset));
+      if (t.aliases.length > 1) {
+        row('ミラー', el('span', { class: 'mono' }, ...t.aliases.flatMap((a, i) => [...(i ? [' / '] : []), nav.link({ view: 'cpu', cpu: a }, addr(a))])));
+      }
     }
     // 飛び先の最初の数命令。ベクタを読んだのと同じ対応で逆アセンブルするので、固定 bank の外なら何も出ない
     if (t.hit) {
       const lines = disassemble(rom, table.mapping, t.cpu, TARGET_INSTRUCTIONS).lines;
       const list = el('div', { class: 'vector-code mono' });
       for (const l of lines) {
-        const a = el('a', { href: '#hex-view', title: `File $${hex(l.bytes[0]!.fileOffset, 6)} — クリックで Hex へ` },
+        const a = nav.link({ view: 'hex', offset: l.bytes[0]!.fileOffset, length: fileSpan(l.bytes) },
           `${addr(l.cpu)}  ${l.bytes.map((b) => hex(b.value!, 2)).join(' ').padEnd(8)}  ${l.text}`);
-        a.addEventListener('click', (ev) => { ev.preventDefault(); onJump(l.bytes[0]!.fileOffset); });
+        a.title = `File $${hex(l.bytes[0]!.fileOffset, 6)} — クリックで Hex へ`;
         list.append(a);
       }
       const open = el('button', { type: 'button' }, '逆アセンブル表示で開く');
-      open.addEventListener('click', () => onDisasm(t.cpu));
+      open.addEventListener('click', () => nav.go({ view: 'disasm', cpu: t.cpu }));
       row('先頭の命令', list, open);
     }
   }
@@ -87,7 +91,7 @@ function renderEntry(rom: NesRom, table: VectorTable, e: VectorEntry, onJump: (f
     ...(e.notes.length ? [el('ul', { class: 'vector-notes' }, ...e.notes.map((n) => el('li', {}, n)))] : []));
 }
 
-export function renderVectorView(rom: NesRom, onJump: (fileOffset: number) => void, onDisasm: (cpu: number) => void): HTMLElement {
+export function renderVectorView(rom: NesRom, nav: Navigator): HTMLElement {
   const section = el('section', { class: 'card', id: 'vector-view' }, el('h2', {}, 'Vectors（リセット・割り込みの入口）'));
   const t = readVectors(rom);
   if (!t) {
@@ -99,8 +103,8 @@ export function renderVectorView(rom: NesRom, onJump: (fileOffset: number) => vo
       'ROM の中ではこの 6 byte が「プログラムの入口」を決めています。'),
     el('p', {}, el('span', { class: `vector-basis vector-basis-${t.basis}` }, BASIS_LABEL[t.basis]), ' ', t.explanation),
     ...t.warnings.map((w) => el('p', { class: 'warning' }, `⚠ ${w}`)),
-    renderVectorBytes(t, onJump),
-    el('div', { class: 'vector-entries' }, ...t.entries.map((e) => renderEntry(rom, t, e, onJump, onDisasm))),
+    renderVectorBytes(t, nav),
+    el('div', { class: 'vector-entries' }, ...t.entries.map((e) => renderEntry(rom, t, e, nav))),
   );
   return section;
 }

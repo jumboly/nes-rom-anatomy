@@ -7,8 +7,10 @@ import {
   type CpuArea,
   type PrgMapping,
 } from '../nes/cpu-map.ts';
+import { disasmMapping } from '../nes/disasm.ts';
 import { findRegion, type NesRom } from '../nes/rom.ts';
 import { el, formatSize, hex } from './format.ts';
+import type { Navigator } from './nav.ts';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const PRG_SPACE = 0x8000;
@@ -106,54 +108,72 @@ function renderMemoryMap(areas: CpuArea[]): HTMLElement {
  * CPU アドレスを入力すると、そこに見える PRG の byte とファイル上の位置を示す。
  * 命令として読む逆アセンブル表示とは別に、生の byte のまま「CPU から見た ROM」を覗けるよう 16 byte 分を並べる。
  */
-function renderLookup(rom: NesRom, m: PrgMapping | null, areas: CpuArea[], onJump: (fileOffset: number) => void): HTMLElement {
+function renderLookup(rom: NesRom, m: PrgMapping | null, areas: CpuArea[], nav: Navigator): HTMLElement {
   const input = el('input', { type: 'text', class: 'mono', size: '8', value: 'FFFA' });
   const form = el('form', { class: 'hex-goto' }, 'CPU address: $', input, el('button', { type: 'submit' }, 'Show'));
   const out = el('div', { class: 'cpu-lookup' });
+  const d = disasmMapping(rom);
+
+  /** 逆アセンブル表示と同じ対応で読める場合だけリンクを出す（bank 切り替えのある Mapper では固定 bank の範囲だけ） */
+  const disasmLink = (cpu: number): (Node | string)[] =>
+    d && readCpu(rom, d.mapping, cpu) ? [' ', nav.link({ view: 'disasm', cpu }, 'ここから逆アセンブル')] : [];
+
+  let current = 0xfffa;
 
   function show(cpu: number) {
+    current = cpu;
+    input.value = hex(cpu, 4);
     const area = areas.find((a) => cpu >= a.start && cpu <= a.end)!;
     const lines: (Node | string)[] = [el('div', {}, el('strong', { class: 'mono' }, addr(cpu)), ` → ${area.label}`)];
     const hit = m ? readCpu(rom, m, cpu) : null;
     if (!hit) {
       lines.push(el('div', { class: 'note' }, area.kind === 'prg-rom' && !m
         ? `Mapper ${rom.header.mapper} は bank 切り替えで中身が変わるため、ファイル上の位置は決まりません（未対応）。`
-        : 'PRG-ROM ではないため、ファイル内に対応する byte はありません。'));
+        : 'PRG-ROM ではないため、ファイル内に対応する byte はありません。', ...disasmLink(cpu)));
       out.replaceChildren(...lines);
       return;
     }
-    const link = el('a', { href: '#hex-view', class: 'mono' }, `$${hex(hit.fileOffset, 6)}`);
-    link.addEventListener('click', (e) => { e.preventDefault(); onJump(hit.fileOffset); });
     const aliases = prgToCpu(m!, hit.prgOffset);
+    // 自分自身もリンクにすると「今見ているもの」との区別がつかないので、ミラーの側だけリンクにする
+    const aliasCells = aliases.flatMap((a, i) => [
+      ...(i ? [' / '] : []),
+      a === cpu ? addr(a) : nav.link({ view: 'cpu', cpu: a }, addr(a)),
+    ]);
     lines.push(el('table', { class: 'kv' },
       el('tr', {}, el('th', {}, 'PRG offset'), el('td', { class: 'mono' }, `+$${hex(hit.prgOffset, 4)}`)),
-      el('tr', {}, el('th', {}, 'File offset'), el('td', {}, link)),
+      el('tr', {}, el('th', {}, 'File offset'), el('td', { class: 'mono' }, nav.link({ view: 'hex', offset: hit.fileOffset, length: 1 }, `$${hex(hit.fileOffset, 6)}`))),
       el('tr', {}, el('th', {}, 'Value'), el('td', { class: 'mono' }, hit.value === null ? '—（ファイルが途中で切れている）' : `$${hex(hit.value, 2)}`)),
-      el('tr', {}, el('th', {}, '同じ byte が見える CPU address'), el('td', { class: 'mono' }, aliases.map(addr).join(' / ')))));
+      el('tr', {}, el('th', {}, '同じ byte が見える CPU address'), el('td', { class: 'mono' }, ...aliasCells))));
 
     // CPU アドレス順に 16 byte 並べる。窓の境界をまたぐと file offset が飛ぶことも見える
     const row = el('div', { class: 'cpu-bytes mono' });
     for (let i = 0; i < 16 && cpu + i <= 0xffff; i++) {
       const b = readCpu(rom, m!, cpu + i);
-      const cell = el('span', { title: b ? `CPU ${addr(cpu + i)} = File $${hex(b.fileOffset, 6)}` : '' },
+      const cell = el('span', { title: b ? `CPU ${addr(cpu + i)} = File $${hex(b.fileOffset, 6)} — クリックで Hex へ` : '' },
         b?.value == null ? '--' : hex(b.value, 2));
-      if (b) cell.addEventListener('click', () => onJump(b.fileOffset));
+      if (b) cell.addEventListener('click', () => nav.go({ view: 'hex', offset: b.fileOffset, length: 1 }));
       row.append(cell);
     }
-    lines.push(row);
+    lines.push(row, el('div', {}, ...disasmLink(cpu)));
     out.replaceChildren(...lines);
   }
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const v = parseInt(input.value.replace(/^\$|^0x/i, ''), 16);
-    if (!Number.isNaN(v) && v >= 0 && v <= 0xffff) show(v);
+    if (!Number.isNaN(v) && v >= 0 && v <= 0xffff) nav.go({ view: 'cpu', cpu: v });
   });
   show(0xfffa);
-  return el('div', {}, form, out);
+  const element = el('div', { id: 'cpu-lookup' }, el('h3', {}, 'CPU アドレスから引く'), form, out);
+  nav.on('cpu', ({ cpu }) => {
+    show(cpu);
+    return element;
+  }, () => ({ view: 'cpu', cpu: current }));
+  return element;
 }
 
-export function renderCpuView(rom: NesRom, onJump: (fileOffset: number) => void): HTMLElement {
+export function renderCpuView(rom: NesRom, nav: Navigator): HTMLElement {
+  const onJump = (offset: number) => nav.go({ view: 'hex', offset, length: 1 });
   const m = prgMapping(rom);
   const areas = cpuMemoryMap(rom, m);
 
@@ -171,8 +191,7 @@ export function renderCpuView(rom: NesRom, onJump: (fileOffset: number) => void)
     el('h2', {}, 'CPU Address Space'),
     el('h3', {}, 'PRG-ROM → CPU $8000-$FFFF'),
     ...mapping,
-    el('h3', {}, 'CPU アドレスから引く'),
-    renderLookup(rom, m, areas, onJump),
+    renderLookup(rom, m, areas, nav),
     el('h3', {}, 'CPU メモリマップ全体'),
     el('p', { class: 'hint' }, '$0000-$401F は本体側で固定、$4020 以降はカートリッジ（Mapper）が決めます。'),
     el('div', { class: 'table-scroll' }, renderMemoryMap(areas)),

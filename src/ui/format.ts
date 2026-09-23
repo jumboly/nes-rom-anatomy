@@ -18,3 +18,13 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   node.append(...children);
   return node;
 }
+
+/**
+ * 命令などの byte 列を Hex で範囲として示すときの長さ。
+ * NROM-128 の $BFFF→$C000 のように CPU では連続でもファイル上で飛ぶ場合は、先頭 1 byte だけを示す
+ * （離れた範囲をまとめて塗ると、間の無関係な byte まで含まれて見えるため）。
+ */
+export function fileSpan(bytes: readonly { fileOffset: number }[]): number {
+  const contiguous = bytes.every((b, i) => b.fileOffset === bytes[0]!.fileOffset + i);
+  return contiguous ? bytes.length : 1;
+}

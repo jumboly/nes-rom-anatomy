@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { prgMapping, type PrgMapping } from './cpu-map.ts';
-import { disassemble, registerName, vectorLabels } from './disasm.ts';
+import { disasmMapping, disassemble, registerName, vectorLabels } from './disasm.ts';
 import type { NesRom } from './rom.ts';
 import { loadFixture, romWith } from './test-rom.ts';
 import { readVectors } from './vectors.ts';
@@ -120,6 +120,13 @@ describe('addressing modes and operands', () => {
     ]);
   });
 
+  it('gives the referenced address for absolute modes and JMP (ind) only', () => {
+    // ゼロページ系・即値・相対分岐は ref を持たない。JSR は target と同じ番地
+    expect(lines.map((l) => l.ref)).toEqual([
+      null, null, null, null, null, null, 0x02ff, null, 0x0034, 0x4000, 0x200a, 0x9000, null, null, null,
+    ]);
+  });
+
   it('explains the JMP ($xxFF) page-wrap bug', () => {
     expect(lines[6]!.notes.join()).toContain('$0200');
   });
@@ -187,6 +194,28 @@ describe('stopping and partial instructions', () => {
     const d = disassemble(rom, m, 0xc000, 2);
     expect(d.lines.map((l) => [l.text, l.bytes[0]!.fileOffset])).toEqual([['SEI', 0x1c010], ['JMP $8000', 0x1c011]]);
     expect(disassemble(rom, m, 0x8000, 1).stop).toContain('読めない');
+  });
+});
+
+describe('disasmMapping', () => {
+  it('fixed PRG mappers use the whole $8000-$FFFF mapping without a note', () => {
+    const rom = loadFixture('synthetic-nrom128.nes');
+    expect(disasmMapping(rom)).toMatchObject({ basis: 'fixed', note: null, mapping: prgMapping(rom) });
+  });
+
+  it('UxROM uses the fixed last bank; MMC1 the assumed last bank', () => {
+    const uxrom = disasmMapping(romWith({ prgKiB: 128, mapper: 2, vectors: [0xc000, 0xc000, 0xc000] }))!;
+    expect(uxrom.basis).toBe('fixed-bank');
+    expect(uxrom.mapping.windows).toEqual([{ cpuStart: 0xc000, size: 0x4000, prgOffset: 0x1c000, mirror: false }]);
+    expect(uxrom.note).toContain('固定 bank');
+    const mmc1 = disasmMapping(romWith({ prgKiB: 128, mapper: 1, vectors: [0xc000, 0xc000, 0xc000] }))!;
+    expect(mmc1.basis).toBe('assumed-bank');
+    expect(mmc1.note).toContain('推定');
+  });
+
+  it('is null without PRG-ROM', () => {
+    const rom = loadFixture('synthetic-nrom256.nes');
+    expect(disasmMapping({ ...rom, header: { ...rom.header, prgRomSize: 0 } })).toBeNull();
   });
 });
 
