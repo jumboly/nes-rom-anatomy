@@ -7,6 +7,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { decodePatternTable, locateTile } from './chr.ts';
 import { parseRom } from './rom.ts';
 
 function loadExternal(name: string, sha256: string): Uint8Array | null {
@@ -84,5 +85,34 @@ describe.skipIf(!nromTemplate128)('nrom-template.nes (NROM-128, pinobatch)', () 
       { kind: 'prg-rom', offset: 0x0010, size: 0x4000 },
       { kind: 'chr-rom', offset: 0x4010, size: 0x2000 },
     ]);
+  });
+});
+
+/**
+ * tools/build-nrom-template.sh が元 PNG から書き出したピクセル index（128x128 × 2 面）。
+ * ビルド側の PNG→CHR 変換とは独立な「正解画像」なので、デコーダの検証に使える。
+ */
+const chrIdxUrl = new URL('../../test-roms/external/nrom-template-chr.idx', import.meta.url);
+const chrIdx = existsSync(chrIdxUrl) ? new Uint8Array(readFileSync(chrIdxUrl)) : null;
+
+describe.skipIf(!nromTemplate256 || !chrIdx)('nrom-template256.nes CHR vs. source PNG', () => {
+  const rom = parseRom(nromTemplate256!);
+
+  it.each([
+    ['$0000 (bggfx.png)', 0],
+    ['$1000 (spritegfx.png)', 1],
+  ] as const)('pattern table %s matches the source image pixel for pixel', (_name, table) => {
+    const size = 128 * 128;
+    const expected = chrIdx!.subarray(table * size, (table + 1) * size);
+    // 128x128 = 16384 要素を toEqual で比べると差分表示が巨大になるため、ずれた最初の位置だけを見る
+    const actual = decodePatternTable(rom.chrRom, table * 0x1000);
+    const firstDiff = actual.findIndex((v, i) => v !== expected[i]);
+    expect(firstDiff).toBe(-1);
+    // 空の画像同士で一致しているだけ、という見落としを防ぐ
+    expect(new Set(actual).size).toBe(4);
+  });
+
+  it('maps CHR directly onto PPU addresses (NROM, CHR 8 KiB)', () => {
+    expect(locateTile(rom, 0, 1, 0)).toMatchObject({ fileOffset: 0x9010, ppuAddress: 0x1000 });
   });
 });

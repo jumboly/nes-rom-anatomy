@@ -51,6 +51,25 @@ describe('parseHeader: synthetic fixtures', () => {
   it('synthetic-nrom128.nes has 16 KiB PRG', () => {
     expect(parseHeader(fixture('synthetic-nrom128.nes')).prgRomSize).toBe(16 * 1024);
   });
+
+  it('synthetic-nrom256-chrram.nes declares 8 KiB CHR-RAM (not inferred)', () => {
+    expect(parseHeader(fixture('synthetic-nrom256-chrram.nes'))).toMatchObject({
+      format: 'NES 2.0',
+      mapper: 0,
+      chrRomSize: 0,
+      chrRam: { bytes: 8 * 1024, inferred: false },
+    });
+  });
+
+  it('synthetic-cnrom.nes is Mapper 3 with 32 KiB CHR-ROM', () => {
+    expect(parseHeader(fixture('synthetic-cnrom.nes'))).toMatchObject({
+      format: 'iNES',
+      mapper: 3,
+      prgRomSize: 32 * 1024,
+      chrRomSize: 32 * 1024,
+      mirroring: 'vertical',
+    });
+  });
 });
 
 describe('parseHeader: iNES flags', () => {

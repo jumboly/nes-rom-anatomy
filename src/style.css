@@ -78,7 +78,26 @@ table { border-collapse: collapse; }
 .hex-row .region-misc-rom { color: var(--misc); }
 .hex-row .region-trailing { color: var(--trailing); }
 .hex-row .selected { background: #f5d547; color: #000; border-radius: 2px; }
-.hex-status { margin-top: 6px; font-size: 12px; }
+.hex-status, .chr-status { margin-top: 6px; font-size: 12px; }
+
+/* CHR */
+.chr-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 6px; }
+.chr-controls select { font: inherit; padding: 2px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; }
+.palette-swatches { display: flex; gap: 8px; }
+.palette-swatch { display: inline-flex; align-items: center; font-size: 12px; }
+.palette-swatch .swatch { border: 1px solid var(--border); margin-right: 3px; }
+.chr-body { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.pattern-tables { display: flex; flex-wrap: wrap; gap: 12px; }
+.pattern-tables figure { margin: 0; }
+.pattern-tables figcaption { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: pre; }
+/* canvas は拡大済みの解像度で描いているが、狭い画面で縮めたときもドットをぼかさない */
+.pattern-table { display: block; max-width: 100%; image-rendering: pixelated; cursor: crosshair; border: 1px solid var(--border); }
+.tile-inspector { min-width: 280px; }
+.tile-inspector h3 { margin-top: 0; }
+.tile-zoom { display: block; margin: 8px 0; border: 1px solid var(--border); image-rendering: pixelated; }
+.tile-bytes { font-size: 12px; }
+.tile-bytes th, .tile-bytes td { text-align: left; padding: 1px 8px 1px 0; white-space: nowrap; }
+.tile-bytes th { color: var(--muted); font-weight: 500; }
 
 @media (prefers-color-scheme: dark) {
   :root { --prg: #5b9be0; --chr: #5cc083; }

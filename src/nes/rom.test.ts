@@ -34,6 +34,21 @@ describe('parseRom: file layout of synthetic fixtures', () => {
     ]);
   });
 
+  it('CHR-RAM cartridge: no CHR-ROM region at all', () => {
+    expect(layout('synthetic-nrom256-chrram.nes')).toEqual([
+      { kind: 'header', offset: 0x0000, size: 16 },
+      { kind: 'prg-rom', offset: 0x0010, size: 0x8000 },
+    ]);
+  });
+
+  it('CNROM: CHR 32 KiB @ $8010', () => {
+    expect(layout('synthetic-cnrom.nes')).toEqual([
+      { kind: 'header', offset: 0x0000, size: 16 },
+      { kind: 'prg-rom', offset: 0x0010, size: 0x8000 },
+      { kind: 'chr-rom', offset: 0x8010, size: 0x8000 },
+    ]);
+  });
+
   it('exposes PRG / CHR contents as slices of the file', () => {
     const rom = parseRom(fixture('synthetic-nrom256.nes'));
     expect(rom.prgRom.length).toBe(0x8000);

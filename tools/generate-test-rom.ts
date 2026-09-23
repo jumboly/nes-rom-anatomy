@@ -1,5 +1,5 @@
 /**
- * Synthetic NROM test ROM generator.
+ * Synthetic NROM / CNROM test ROM generator.
  *
  * このスクリプトは src/nes/ のパーサーを一切 import しない。
  * パーサーと同じ思い込み（バグ）を fixture 側にも埋め込んでしまうと、
@@ -20,8 +20,12 @@ export const TRAINER_SIZE = 512;
 export interface SyntheticRomOptions {
   /** 'ines' = iNES 1.0 header, 'nes2' = NES 2.0 header */
   format: 'ines' | 'nes2';
+  /** 0 = NROM, 3 = CNROM */
+  mapper: 0 | 3;
   /** 16 KiB PRG banks: 1 = NROM-128, 2 = NROM-256 */
   prgBanks: 1 | 2;
+  /** 8 KiB CHR-ROM banks。0 = CHR-RAM カートリッジ（NES 2.0 では CHR-RAM 8 KiB を宣言） */
+  chrBanks: 0 | 1 | 4;
   trainer: boolean;
 }
 
@@ -137,10 +141,35 @@ export function encodeTile(pixel: PixelFn): number[] {
   return out;
 }
 
-function buildChr(): Uint8Array {
-  const chr = new Uint8Array(CHR_BANK_SIZE);
+/**
+ * 各 8 KiB CHR bank の固定タイルに置く bank 番号の数字グリフ（全ピクセル値 3）。
+ * PRG の "SYNTH PRG BANK n" と同じく、どの bank を表示しているかを目視で判別するため。
+ * $0000 側と $1000 側の両方に置くのは、bank 内の 4 KiB 境界の取り違えも検出するため。
+ */
+export const CHR_BANK_MARKER_TILES = [12, 268] as const;
+// prettier-ignore
+export const DIGIT_GLYPHS: readonly (readonly number[])[] = [
+  [0x3c, 0x66, 0x6e, 0x76, 0x66, 0x66, 0x3c, 0x00], // 0
+  [0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7e, 0x00], // 1
+  [0x3c, 0x66, 0x06, 0x0c, 0x30, 0x60, 0x7e, 0x00], // 2
+  [0x3c, 0x66, 0x06, 0x1c, 0x06, 0x66, 0x3c, 0x00], // 3
+];
+export const chrBankMarkerPixel =
+  (bank: number): PixelFn =>
+  (x, y) =>
+    DIGIT_GLYPHS[bank]![y]! & (0x80 >> x) ? 3 : 0;
+
+function buildChr(banks: number): Uint8Array {
+  const chr = new Uint8Array(banks * CHR_BANK_SIZE);
+  // テストタイル群は bank 0 にだけ置く。bank 1 以降は目印以外 0 にしておくことで、
+  // bank を取り違えたときに「テストタイルが見えない」ことで気付けるようにする
   for (const [index, tile] of Object.entries(CHR_TILES)) {
     chr.set(encodeTile(tile.pixel), Number(index) * 16);
+  }
+  for (let b = 0; b < banks; b++) {
+    for (const t of CHR_BANK_MARKER_TILES) {
+      chr.set(encodeTile(chrBankMarkerPixel(b)), b * CHR_BANK_SIZE + t * 16);
+    }
   }
   return chr;
 }
@@ -164,15 +193,16 @@ function buildHeader(opts: SyntheticRomOptions): Uint8Array {
   const h = new Uint8Array(16);
   h.set([0x4e, 0x45, 0x53, 0x1a], 0); // "NES" + EOF
   h[4] = opts.prgBanks; // PRG-ROM size in 16 KiB units
-  h[5] = 1; // CHR-ROM size in 8 KiB units
+  h[5] = opts.chrBanks; // CHR-ROM size in 8 KiB units
   // flags 6: bit0=1 vertical mirroring を選ぶのは、デフォルト値 0 と区別して
-  // 「ビットをちゃんと読んでいる」ことをテストで確かめるため
-  h[6] = 0x01 | (opts.trainer ? 0x04 : 0);
+  // 「ビットをちゃんと読んでいる」ことをテストで確かめるため。bit 4-7 = mapper D0-D3
+  h[6] = 0x01 | (opts.trainer ? 0x04 : 0) | (opts.mapper << 4);
   if (opts.format === 'nes2') {
     h[7] = 0x08; // bits 2-3 = 10b → NES 2.0 identifier
     // byte 8-9: mapper 上位/submapper/ROM size MSB はすべて 0
     h[10] = 0x00; // PRG-RAM なし
-    h[11] = 0x00; // CHR-RAM なし
+    // CHR-RAM: shift 7 → 64 << 7 = 8 KiB。CHR-ROM がある場合は CHR-RAM なし
+    h[11] = opts.chrBanks === 0 ? 0x07 : 0x00;
     h[12] = 0x00; // NTSC (RP2C02)
   }
   return h;
@@ -183,7 +213,7 @@ export function buildSyntheticRom(opts: SyntheticRomOptions): Uint8Array {
     buildHeader(opts),
     ...(opts.trainer ? [buildTrainer()] : []),
     buildPrg(opts.prgBanks),
-    buildChr(),
+    ...(opts.chrBanks > 0 ? [buildChr(opts.chrBanks)] : []),
   ];
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let offset = 0;
@@ -196,10 +226,13 @@ export function buildSyntheticRom(opts: SyntheticRomOptions): Uint8Array {
 
 /** 生成する fixture 一覧。ファイル名 → オプション */
 export const FIXTURES: Record<string, SyntheticRomOptions> = {
-  'synthetic-nrom256.nes': { format: 'ines', prgBanks: 2, trainer: false },
-  'synthetic-nrom256-nes2.nes': { format: 'nes2', prgBanks: 2, trainer: false },
-  'synthetic-nrom256-trainer.nes': { format: 'ines', prgBanks: 2, trainer: true },
-  'synthetic-nrom128.nes': { format: 'ines', prgBanks: 1, trainer: false },
+  'synthetic-nrom256.nes': { format: 'ines', mapper: 0, prgBanks: 2, chrBanks: 1, trainer: false },
+  'synthetic-nrom256-nes2.nes': { format: 'nes2', mapper: 0, prgBanks: 2, chrBanks: 1, trainer: false },
+  'synthetic-nrom256-trainer.nes': { format: 'ines', mapper: 0, prgBanks: 2, chrBanks: 1, trainer: true },
+  'synthetic-nrom128.nes': { format: 'ines', mapper: 0, prgBanks: 1, chrBanks: 1, trainer: false },
+  // CHR-RAM は iNES 1.0 だとサイズを推定するしかないため、NES 2.0 で明示的に宣言する
+  'synthetic-nrom256-chrram.nes': { format: 'nes2', mapper: 0, prgBanks: 2, chrBanks: 0, trainer: false },
+  'synthetic-cnrom.nes': { format: 'ines', mapper: 3, prgBanks: 2, chrBanks: 4, trainer: false },
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

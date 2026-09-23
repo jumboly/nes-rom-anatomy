@@ -27,3 +27,19 @@ git -C "$SRC" -c advice.detachedHead=false checkout --quiet "$COMMIT"
 make -C "$SRC" nrom-template.nes nrom-template256.nes
 cp "$SRC/nrom-template.nes" "$SRC/nrom-template256.nes" "$OUT/"
 shasum -a 256 "$OUT/nrom-template.nes" "$OUT/nrom-template256.nes"
+
+# CHR の元画像（128x128 の indexed PNG, index = ピクセル値 0-3）を生の index 列として書き出す。
+# ROM 内の CHR を src/nes/chr.ts でデコードした結果と、ビルド側の変換ツール (pilbmp2nes) を
+# 経由せずに突き合わせるため。bggfx = pattern table $0000, spritegfx = $1000（src/main.s の .incbin 順）
+python3 - "$SRC/tilesets" "$OUT/nrom-template-chr.idx" <<'PY'
+import sys
+from PIL import Image
+src, out = sys.argv[1], sys.argv[2]
+data = bytearray()
+for name in ("bggfx", "spritegfx"):
+    im = Image.open(f"{src}/{name}.png")
+    assert im.mode == "P" and im.size == (128, 128), (name, im.mode, im.size)
+    data += im.tobytes()
+open(out, "wb").write(data)
+PY
+echo "wrote $OUT/nrom-template-chr.idx"

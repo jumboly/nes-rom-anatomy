@@ -85,3 +85,33 @@ describe('synthetic-nrom256-trainer.nes raw layout', () => {
     expect(hex(rom.subarray(0x210, 0x214))).toBe('78 d8 a2 ff');
   });
 });
+
+describe('synthetic-nrom256-chrram.nes raw layout', () => {
+  const rom = load('synthetic-nrom256-chrram.nes');
+  it('has no CHR-ROM and declares 8 KiB CHR-RAM in the NES 2.0 header', () => {
+    expect(rom.length).toBe(16 + 0x8000);
+    // byte 5 = 0 (CHR-ROM なし), byte 11 = $07 (CHR-RAM 64 << 7 = 8 KiB)
+    expect(hex(rom.subarray(0, 16))).toBe('4e 45 53 1a 02 00 01 08 00 00 00 07 00 00 00 00');
+  });
+});
+
+describe('synthetic-cnrom.nes raw layout', () => {
+  const rom = load('synthetic-cnrom.nes');
+
+  it('is Mapper 3 with 32 KiB PRG and 32 KiB CHR', () => {
+    expect(rom.length).toBe(16 + 0x8000 + 0x8000);
+    // byte 6 = $31: mapper D0-D3 = 3, vertical mirroring
+    expect(hex(rom.subarray(0, 16))).toBe('4e 45 53 1a 02 04 31 00 00 00 00 00 00 00 00 00');
+  });
+
+  it('puts a digit glyph for each CHR bank at tile 12 and tile 268', () => {
+    // "1" のグリフ: plane 0 / plane 1 とも同じ（ピクセル値 3）
+    const one = '18 38 18 18 18 18 7e 00';
+    const bank1 = 0x8010 + 0x2000;
+    expect(hex(rom.subarray(bank1 + 12 * 16, bank1 + 13 * 16))).toBe(`${one} ${one}`);
+    expect(hex(rom.subarray(bank1 + 268 * 16, bank1 + 269 * 16))).toBe(`${one} ${one}`);
+    const three = '3c 66 06 1c 06 66 3c 00';
+    const bank3 = 0x8010 + 0x6000;
+    expect(hex(rom.subarray(bank3 + 12 * 16, bank3 + 13 * 16))).toBe(`${three} ${three}`);
+  });
+});
