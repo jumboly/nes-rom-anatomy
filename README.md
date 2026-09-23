@@ -12,7 +12,7 @@ ROM file offset → PRG bank → Mapper → CPU address → Disassembly
 ROM file offset → CHR bank → Mapper → PPU address → 8x8 tile
 ```
 
-**公開ページ: https://jumboly.github.io/nes-rom-anatomy/** （main への push ごとに GitHub Actions でテスト・デプロイ）
+**公開ページ: https://www.jumboly.jp/nes-rom-anatomy/** （main への push ごとに GitHub Actions でテスト・デプロイ）
 
 ROM ファイルはブラウザ内だけで解析され、サーバーへは送信されません。
 

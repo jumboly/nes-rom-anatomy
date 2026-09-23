@@ -43,6 +43,8 @@ const NESTEST_LOG_SHA256 = '627c8e180b1a924dfa705c5dc6958fad7ab75a62de556173caf8
 const nestestLog = loadExternal('nestest.log', NESTEST_LOG_SHA256);
 
 describe.skipIf(!nestest)('nestest.nes (NROM-128)', () => {
+  // skipIf でもテスト収集のため describe の本体は実行されるので、ROM が無い環境（CI）ではここで抜ける
+  if (!nestest) return;
   const rom = parseRom(nestest!);
 
   it('is an iNES Mapper 0 ROM with 16 KiB PRG and 8 KiB CHR', () => {
@@ -164,6 +166,8 @@ const chrIdxUrl = new URL('../../test-roms/external/nrom-template-chr.idx', impo
 const chrIdx = existsSync(chrIdxUrl) ? new Uint8Array(readFileSync(chrIdxUrl)) : null;
 
 describe.skipIf(!nromTemplate256 || !chrIdx)('nrom-template256.nes CHR vs. source PNG', () => {
+  // skipIf でもテスト収集のため describe の本体は実行されるので、ROM が無い環境（CI）ではここで抜ける
+  if (!nromTemplate256 || !chrIdx) return;
   const rom = parseRom(nromTemplate256!);
 
   it.each([
@@ -203,6 +207,8 @@ function parseNestestLog(text: string) {
 const NESTEST_MNEMONIC: Record<string, string> = { ISC: 'ISB' };
 
 describe.skipIf(!nestest || !nestestLog)('nestest.nes disassembly vs. nestest.log', () => {
+  // skipIf でもテスト収集のため describe の本体は実行されるので、ROM が無い環境（CI）ではここで抜ける
+  if (!nestest || !nestestLog) return;
   const rom = parseRom(nestest!);
   const m = prgMapping(rom)!;
   const trace = parseNestestLog(new TextDecoder().decode(nestestLog!));
