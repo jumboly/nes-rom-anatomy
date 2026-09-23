@@ -14,7 +14,7 @@ ROM file offset → CHR bank → Mapper → PPU address → 8x8 tile
 
 ROM ファイルはブラウザ内だけで解析され、サーバーへは送信されません。
 
-## 現在の機能（Phase 1–2）
+## 現在の機能（Phase 1–3）
 
 - iNES / NES 2.0 ヘッダ解析（Mapper, Submapper, PRG/CHR-ROM, PRG/CHR-(NV)RAM, Mirroring, Battery, Trainer, Console type, Timing ほか）
 - Raw header の byte ごとの意味表示
@@ -24,9 +24,14 @@ ROM ファイルはブラウザ内だけで解析され、サーバーへは送�
 - CHR Pattern Table Viewer（`$0000` / `$1000` の 2 面、8 KiB bank 切替、パレット切替、Zoom、Grid）
 - Tile Inspector（ピクセル値の拡大表示、plane 0 / plane 1 の byte → ピクセルの組み立て、CHR offset / File offset / PPU address、Hex へジャンプ）
 - CHR-RAM カートリッジの説明表示（タイルがファイルに存在しない理由）
+- PRG-ROM → CPU $8000-$FFFF の対応図（NROM-256 の 2 窓 / NROM-128 のミラー。クリックで Hex へ）
+- CPU アドレスから引く: CPU address → PRG offset / File offset / 値 / 同じ byte が見える全 CPU address
+- CPU メモリマップ全体（本体側 / カートリッジ側の区別、PRG-RAM・Trainer の扱い）
+- Hex Viewer で PRG の byte を選ぶと、その byte が見える CPU address も表示
 
 PPU address は、Mapper を介さずに決まる場合（Mapper 0 かつ CHR 8 KiB）だけ表示します。
-それ以外は bank 切り替え次第なので、Mapper 対応（Phase 3 以降）までは「未対応」と表示します。
+CPU address は PRG を bank 切り替えしない Mapper（0 = NROM, 3 = CNROM）で表示します。
+それ以外は bank 切り替え次第なので、対応するまでは「未対応」と表示します。
 
 ## 対応フォーマット
 
@@ -37,14 +42,15 @@ PPU address は、Mapper を介さずに決まる場合（Mapper 0 かつ CHR 8 
 ## 対応 Mapper
 
 - ヘッダ解析・ファイル構造表示: すべての Mapper 番号
-- CPU/PPU アドレス対応（今後）: Mapper 0 (NROM) から順に対応予定
+- CPU アドレス対応: Mapper 0 (NROM), Mapper 3 (CNROM, PRG のみ)
+- PPU アドレス対応: Mapper 0 (NROM, CHR 8 KiB)
 
 ## 今後の予定
 
 | Phase | 内容 |
 | --- | --- |
 | 2 | CHR-ROM Pattern Table Viewer / Tile Inspector / CHR-RAM 表示（済） |
-| 3 | PRG-ROM ↔ CPU アドレス空間 (NROM-128 ミラー / NROM-256) |
+| 3 | PRG-ROM ↔ CPU アドレス空間 (NROM-128 ミラー / NROM-256)（済） |
 | 4 | RESET / NMI / IRQ ベクタ |
 | 5 | 6502 (Ricoh 2A03) 線形逆アセンブラ |
 | 6 | ビュー間の相互ナビゲーション |

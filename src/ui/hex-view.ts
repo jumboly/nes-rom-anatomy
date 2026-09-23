@@ -1,3 +1,4 @@
+import { prgMapping, prgToCpu } from '../nes/cpu-map.ts';
 import { locateOffset, type NesRom } from '../nes/rom.ts';
 import { el, hex } from './format.ts';
 import { REGION_LABEL } from './regions.ts';
@@ -28,6 +29,16 @@ export function createHexView(rom: NesRom, data: Uint8Array): HexView {
   const gotoForm = el('form', { class: 'hex-goto' }, 'File offset: $', gotoInput, el('button', { type: 'submit' }, 'Go'));
 
   let selected = -1;
+  const mapping = prgMapping(rom);
+
+  /** file offset → CPU から見えるアドレス。ファイルと CPU の両方の視点を同じ場所で見せるため */
+  function cpuText(kind: string, relative: number): string {
+    if (kind === 'trainer') return `  →  CPU $${hex(0x7000 + relative, 4)}（コピー機器がロードした場合）`;
+    if (kind !== 'prg-rom') return '';
+    if (!mapping) return `  →  CPU: Mapper ${rom.header.mapper} の bank 切り替え次第`;
+    const cpus = prgToCpu(mapping, relative);
+    return cpus.length ? `  →  CPU ${cpus.map((c) => `$${hex(c, 4)}`).join(' / ')}` : '  →  CPU からは見えない';
+  }
 
   // 領域は高々 6 個なので byte ごとの線形探索で十分（表示中の ~400 byte 分しか呼ばれない）
   const regionClass = (offset: number) => {
@@ -40,7 +51,8 @@ export function createHexView(rom: NesRom, data: Uint8Array): HexView {
     const where = hit
       ? `${REGION_LABEL[hit.region.kind]} + $${hex(hit.relative, 4)}`
       : '（どの領域にも属さない）';
-    return `File $${hex(offset, 6)} = $${hex(data[offset]!, 2)}  →  ${where}`;
+    const cpu = hit ? cpuText(hit.region.kind, hit.relative) : '';
+    return `File $${hex(offset, 6)} = $${hex(data[offset]!, 2)}  →  ${where}${cpu}`;
   }
 
   function render() {

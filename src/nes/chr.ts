@@ -5,6 +5,7 @@
  * ここでは色を扱わない。CHR が持つのはピクセル値 0-3 だけで、
  * 実際の色は PPU のパレット RAM ($3F00-$3F1F) で決まり、ROM には含まれないため。
  */
+import { hasFixedChr } from './mapper.ts';
 import { findRegion, type NesRom } from './rom.ts';
 
 export const TILE_BYTES = 16;
@@ -68,7 +69,7 @@ export interface TileLocation {
   fileOffset: number;
   /**
    * PPU から見えるアドレス。Mapper を介さずに決まる場合（NROM で CHR 8 KiB）のみ値を持つ。
-   * それ以外は bank 切り替え次第なので null（Mapper 対応は Phase 3 以降）
+   * それ以外は bank 切り替え次第なので null（CNROM の CHR 切り替えは Phase 8）
    */
   ppuAddress: number | null;
   /** 16 byte がすべてファイル内に存在するか */
@@ -80,7 +81,7 @@ export function locateTile(rom: NesRom, bank: number, patternTable: 0 | 1, tileI
   if (!region) throw new Error('ROM has no CHR-ROM');
   const bankOffset = patternTable * PATTERN_TABLE_BYTES + tileIndex * TILE_BYTES;
   const chrOffset = bank * CHR_BANK_BYTES + bankOffset;
-  const fixedMapping = rom.header.mapper === 0 && rom.header.chrRomSize === CHR_BANK_BYTES;
+  const fixedMapping = hasFixedChr(rom.header);
   return {
     chrOffset,
     bank,

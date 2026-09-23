@@ -1,4 +1,5 @@
 import type { NesHeader, SizeInfo } from '../nes/header.ts';
+import { mapperName } from '../nes/mapper.ts';
 import { el, formatSize, hex } from './format.ts';
 
 function sizeText(s: SizeInfo): string {
@@ -37,7 +38,7 @@ function byteMeaning(h: NesHeader, i: number): string {
 export function renderHeader(h: NesHeader): HTMLElement {
   const rows: [string, string][] = [
     ['Format', h.format],
-    ['Mapper', `${h.mapper}${h.mapper === 0 ? ' (NROM)' : ''}`],
+    ['Mapper', `${h.mapper}${mapperName(h.mapper) ? ` (${mapperName(h.mapper)})` : ''}`],
     ['Submapper', h.submapper === null ? '— (iNES には無い)' : String(h.submapper)],
     ['PRG-ROM', `${formatSize(h.prgRomSize)}`],
     ['CHR-ROM', h.chrRomSize === 0 ? 'なし（CHR-RAM を使用）' : formatSize(h.chrRomSize)],

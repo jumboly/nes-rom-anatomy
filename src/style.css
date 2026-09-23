@@ -102,3 +102,34 @@ table { border-collapse: collapse; }
 @media (prefers-color-scheme: dark) {
   :root { --prg: #5b9be0; --chr: #5cc083; }
 }
+
+/* CPU */
+.prg-map { display: block; width: 100%; max-width: 620px; height: auto; margin: 4px 0 8px; }
+.prg-map text { fill: var(--fg); font-family: var(--mono); font-size: 12px; pointer-events: none; }
+.prg-map .prg-map-title { fill: var(--muted); font-family: system-ui, sans-serif; }
+.prg-map .prg-map-sub { fill: var(--muted); font-size: 11px; }
+.prg-source rect, .prg-window rect { fill: color-mix(in srgb, var(--prg) 22%, var(--card)); stroke: var(--prg); stroke-width: 1.5; }
+.prg-source, .prg-window { cursor: pointer; }
+.prg-source:hover rect, .prg-window:hover rect { fill: color-mix(in srgb, var(--prg) 38%, var(--card)); }
+.prg-source.truncated rect { stroke: var(--trailing); stroke-dasharray: 4 3; }
+/* ミラーは「実体ではない」ことを破線と薄い塗りで示す */
+.prg-window.mirror rect { fill: color-mix(in srgb, var(--prg) 8%, var(--card)); stroke-dasharray: 5 4; }
+.prg-band { fill: color-mix(in srgb, var(--prg) 18%, transparent); stroke: var(--prg); stroke-width: .75; }
+.prg-band.mirror { fill: color-mix(in srgb, var(--prg) 7%, transparent); stroke-dasharray: 4 3; }
+.cpu-lookup { margin-bottom: 4px; }
+.cpu-lookup .kv { margin: 4px 0; }
+.cpu-bytes { display: flex; flex-wrap: wrap; gap: 0; font-size: 13px; }
+.cpu-bytes span { padding: 0 3px; cursor: pointer; }
+.cpu-bytes span:hover { background: #f5d547; color: #000; border-radius: 2px; }
+.cpu-areas tr.mirror td { color: var(--muted); }
+.swatch.cpu-area-internal-ram { background: #8e8e8e; }
+.swatch.cpu-area-ppu-registers { background: var(--chr); }
+.swatch.cpu-area-apu-io { background: var(--trainer); }
+.swatch.cpu-area-test-mode, .swatch.cpu-area-open-bus, .swatch.cpu-area-expansion { background: transparent; border: 1px solid var(--border); }
+.swatch.cpu-area-prg-ram { background: var(--misc); }
+.swatch.cpu-area-trainer { background: var(--trainer); }
+.swatch.cpu-area-prg-rom { background: var(--prg); }
+.table-scroll { overflow-x: auto; }
+/* 狭い画面で説明列が潰れて行が極端に縦長になるのを避け、横スクロールさせる */
+.cpu-areas { min-width: 900px; }
+.cpu-areas .desc { min-width: 260px; }

@@ -8,7 +8,15 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { decodePatternTable, locateTile } from './chr.ts';
-import { parseRom } from './rom.ts';
+import { prgMapping, prgToCpu, readCpu } from './cpu-map.ts';
+import { parseRom, type NesRom } from './rom.ts';
+
+/** CPU アドレスから見える byte 列。値は ROM ファイルの位置ではなく CPU 側の既知の値（map ファイル, nestest.log）と照合する */
+function readCpuBytes(rom: NesRom, cpu: number, n: number) {
+  const m = prgMapping(rom)!;
+  return Array.from({ length: n }, (_, i) => readCpu(rom, m, cpu + i)?.value);
+}
+const word = (bytes: (number | null | undefined)[], i: number) => bytes[i]! | (bytes[i + 1]! << 8);
 
 function loadExternal(name: string, sha256: string): Uint8Array | null {
   const url = new URL(`../../test-roms/external/${name}`, import.meta.url);
@@ -52,6 +60,19 @@ describe.skipIf(!nestest)('nestest.nes (NROM-128)', () => {
     ]);
     expect(rom.warnings).toEqual([]);
   });
+
+  // nestest.log の 1 行目 "C000  4C F5 C5  JMP $C5F5"。NROM-128 なので $8000 側にも同じ byte が見える
+  it('shows JMP $C5F5 at CPU $C000 and its mirror $8000 (file $0010)', () => {
+    expect(readCpuBytes(rom, 0xc000, 3)).toEqual([0x4c, 0xf5, 0xc5]);
+    expect(readCpuBytes(rom, 0x8000, 3)).toEqual([0x4c, 0xf5, 0xc5]);
+    expect(readCpu(rom, prgMapping(rom)!, 0xc000)!.fileOffset).toBe(0x0010);
+    expect(prgToCpu(prgMapping(rom)!, 0)).toEqual([0x8000, 0xc000]);
+  });
+
+  it('reads the vectors at $FFFA: NMI $C5AF, RESET $C004, IRQ $C5F4', () => {
+    const v = readCpuBytes(rom, 0xfffa, 6);
+    expect([word(v, 0), word(v, 2), word(v, 4)]).toEqual([0xc5af, 0xc004, 0xc5f4]);
+  });
 });
 
 const layoutOf = (data: Uint8Array) =>
@@ -67,6 +88,14 @@ describe.skipIf(!nromTemplate256)('nrom-template256.nes (NROM-256, pinobatch)', 
       mirroring: 'horizontal',
       trainer: false,
     });
+  });
+
+  // map256.txt: reset_handler $8000, nmi_handler $8037, irq_handler $803A, VECTORS $FFFA-$FFFF
+  it('reads the vectors from map256.txt through CPU $FFFA (file $800A)', () => {
+    const rom = parseRom(nromTemplate256!);
+    const v = readCpuBytes(rom, 0xfffa, 6);
+    expect([word(v, 0), word(v, 2), word(v, 4)]).toEqual([0x8037, 0x8000, 0x803a]);
+    expect(readCpu(rom, prgMapping(rom)!, 0xfffa)!.fileOffset).toBe(0x800a);
   });
 
   it('has the NROM-256 file layout', () => {
@@ -85,6 +114,14 @@ describe.skipIf(!nromTemplate128)('nrom-template.nes (NROM-128, pinobatch)', () 
       { kind: 'prg-rom', offset: 0x0010, size: 0x4000 },
       { kind: 'chr-rom', offset: 0x4010, size: 0x2000 },
     ]);
+  });
+
+  // map.txt: NROM-128 版はコードを $C000 にリンクしている（reset $C000, nmi $C037, irq $C03A）
+  it('reads the vectors from map.txt, and the reset code through both $C000 and its mirror $8000', () => {
+    const rom = parseRom(nromTemplate128!);
+    const v = readCpuBytes(rom, 0xfffa, 6);
+    expect([word(v, 0), word(v, 2), word(v, 4)]).toEqual([0xc037, 0xc000, 0xc03a]);
+    expect(readCpuBytes(rom, 0x8000, 16)).toEqual(readCpuBytes(rom, 0xc000, 16));
   });
 });
 
