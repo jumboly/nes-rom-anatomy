@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.DS_Store
+# 第三者ROMは再配布条件を確認するまでコミットしない（test-roms/README.md 参照）
+test-roms/external/

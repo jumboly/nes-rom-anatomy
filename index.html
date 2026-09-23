@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NES Inspector</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>NES Inspector</h1>
+      <label class="button">
+        .nes ファイルを開く
+        <input id="file-input" type="file" accept=".nes" hidden />
+      </label>
+      <span class="samples">
+        Synthetic:
+        <button data-sample="synthetic-nrom256.nes">NROM-256</button>
+        <button data-sample="synthetic-nrom256-nes2.nes">NROM-256 (NES 2.0)</button>
+        <button data-sample="synthetic-nrom256-trainer.nes">+Trainer</button>
+        <button data-sample="synthetic-nrom128.nes">NROM-128</button>
+      </span>
+      <span class="privacy">ファイルはブラウザ内で解析され、どこにも送信されません</span>
+    </header>
+    <main id="app">
+      <div class="dropzone">ここに .nes ファイルをドロップ</div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "nes-inspector",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NES ROM anatomy viewer: see how a .nes file maps onto the cartridge, mapper and CPU/PPU address spaces",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "gen:roms": "node tools/generate-test-rom.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^4.1.11"
+  }
+}
