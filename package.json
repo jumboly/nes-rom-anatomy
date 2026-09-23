@@ -1,5 +1,5 @@
 {
-  "name": "nes-inspector",
+  "name": "nes-rom-anatomy",
   "private": true,
   "version": "0.1.0",
   "description": "NES ROM anatomy viewer: see how a .nes file maps onto the cartridge, mapper and CPU/PPU address spaces",

@@ -18,6 +18,13 @@ function loadExternal(name: string, sha256: string): Uint8Array | null {
   return data;
 }
 
+// nrom-template は tools/build-nrom-template.sh でビルドする。
+// SHA-256 は cc65 V2.18 (Homebrew cc65 2.19) でのビルド結果。ツールチェーンが変わると一致しない可能性がある
+const NROM_TEMPLATE_256_SHA256 = '217dab9800641fe6bdd221eb7cc7b3abc988db600530283430cd56bb77cf97ac';
+const NROM_TEMPLATE_128_SHA256 = 'b30dce8d2f816d712edbaa3660d01203122d7ef70079ff1158534a5ac5607745';
+const nromTemplate256 = loadExternal('nrom-template256.nes', NROM_TEMPLATE_256_SHA256);
+const nromTemplate128 = loadExternal('nrom-template.nes', NROM_TEMPLATE_128_SHA256);
+
 const NESTEST_SHA256 = 'f67d55fd6b3cf0bad1cc85f1df0d739c65b53e79cecb7fea8f77ec0eadab0004';
 const nestest = loadExternal('nestest.nes', NESTEST_SHA256);
 
@@ -43,5 +50,39 @@ describe.skipIf(!nestest)('nestest.nes (NROM-128)', () => {
       { kind: 'chr-rom', offset: 0x4010, size: 0x2000 },
     ]);
     expect(rom.warnings).toEqual([]);
+  });
+});
+
+const layoutOf = (data: Uint8Array) =>
+  parseRom(data).regions.map(({ kind, offset, size }) => ({ kind, offset, size }));
+
+describe.skipIf(!nromTemplate256)('nrom-template256.nes (NROM-256, pinobatch)', () => {
+  it('is an iNES Mapper 0 ROM with 32 KiB PRG and 8 KiB CHR', () => {
+    expect(parseRom(nromTemplate256!).header).toMatchObject({
+      format: 'iNES',
+      mapper: 0,
+      prgRomSize: 32 * 1024,
+      chrRomSize: 8 * 1024,
+      mirroring: 'horizontal',
+      trainer: false,
+    });
+  });
+
+  it('has the NROM-256 file layout', () => {
+    expect(layoutOf(nromTemplate256!)).toEqual([
+      { kind: 'header', offset: 0x0000, size: 16 },
+      { kind: 'prg-rom', offset: 0x0010, size: 0x8000 },
+      { kind: 'chr-rom', offset: 0x8010, size: 0x2000 },
+    ]);
+  });
+});
+
+describe.skipIf(!nromTemplate128)('nrom-template.nes (NROM-128, pinobatch)', () => {
+  it('has the NROM-128 file layout', () => {
+    expect(layoutOf(nromTemplate128!)).toEqual([
+      { kind: 'header', offset: 0x0000, size: 16 },
+      { kind: 'prg-rom', offset: 0x0010, size: 0x4000 },
+      { kind: 'chr-rom', offset: 0x4010, size: 0x2000 },
+    ]);
   });
 });

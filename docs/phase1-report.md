@@ -7,9 +7,9 @@
 | 1 | 済 | プロジェクト作成（Vite + TypeScript + Vitest、UI フレームワークなし） |
 | 2 | 済 | `tools/generate-test-rom.ts` で Synthetic ROM を 4 種生成 |
 | 3 | 済 | `src/nes/header.ts`（iNES / NES 2.0）, `src/nes/rom.ts`（ファイル内領域） |
-| 4 | 済 | unit test 46 件（fixture の生バイト・ヘッダ・レイアウト・異常系） |
+| 4 | 済 | unit test 49 件（fixture の生バイト・ヘッダ・レイアウト・異常系） |
 | 5 | 済 | Web UI: Header / Raw header / ROM Layout / Hex Viewer |
-| 6 | 一部 | 実在 ROM は nestest.nes (NROM-128) で確認。NROM-256 の実在 Homebrew は未確認（下記） |
+| 6 | 済 | 実在 ROM: nrom-template256.nes (NROM-256), nrom-template.nes / nestest.nes (NROM-128) |
 
 ## 設計上の判断
 
@@ -23,30 +23,16 @@
 
 - **nestest.nes**（SHA-256 `f67d55fd…0004`）: iNES / Mapper 0 / PRG 16 KiB / CHR 8 KiB / horizontal。レイアウト `Header @0 | PRG @$0010 | CHR @$4010` を unit test（ファイルがある場合のみ）と UI で確認。
 - 再配布条件が明示されていないため `test-roms/external/`（gitignore）に置き、同梱しない。
+- **nrom-template256.nes**（pinobatch, commit `d5ce5d8` を cc65 でビルド）: iNES / Mapper 0 / PRG 32 KiB / CHR 8 KiB。レイアウト `Header @0 | PRG @$0010 | CHR @$8010` を確認。map ファイル上のベクタは RESET `$8000` / NMI `$8037` / IRQ `$803A`（Phase 4 で照合予定）。
+- 注意: nrom-template のコードは `$8000-$82AA` だけで、NROM-256 版でも PRG 後半 16 KiB はほぼ空。「32 KiB 全体を使う実在 ROM」としての検証力は限定的。
 
-## 相談事項
+## 決定事項（Phase 1 終了時の相談）
 
-### 1. "Diamond-Chase" が特定できない
+1. 実在 NROM-256 ROM: "Diamond-Chase" は特定できず、**pinobatch/nrom-template** を代替とする（ソースからビルド・非同梱）。
+2. GitHub: **public** リポジトリを作成し、課題は Issue で管理する。
+3. プロジェクト名: **nes-rom-anatomy**。
 
-GitHub・Web 検索で NES Homebrew の "Diamond-Chase" を見つけられなかった。近いものは Shiru の **Chase**（宝石を集めるゲーム）だが、これは **NROM-128・C 言語 (cc65)** で、「NROM-256・6502 アセンブリのソースと比較」という目的に合わない。
-
-代替候補:
-
-1. **pinobatch/nrom-template**（おすすめ）: ca65 アセンブリ、NROM-256 ビルド設定あり（`nrom256-*.cfg`）、GNU All-Permissive License（著作権表示を残せば再配布可）、実際の CHR グラフィックあり。ビルドに cc65 と Python (Pillow) が必要。
-2. **Shiru の Chase**（public domain）: C 言語なので、逆アセンブル結果は cc65 の生成コードと比較することになる。NROM-128。
-3. Diamond-Chase の入手先 URL をご存じならそれを使う。
-
-いずれもソースからビルドすれば ROM を同梱せずに済む（`npm run` でビルドするスクリプトを用意する案）。ライセンス上は 1 と 2 は同梱も可能。
-
-### 2. GitHub リポジトリ / Issue
-
-ローカルの git リポジトリのみ作成した。GitHub リポジトリの作成（public / private）と、下記課題の Issue 化を行ってよいか確認したい。
-
-### 3. プロジェクト名
-
-ディレクトリ名に合わせて `nes-inspector` とした。候補の `nes-rom-anatomy` / `nes-cartridge-explorer` の方が良ければ変更する。
-
-## 気付いた課題（Issue 候補）
+## 気付いた課題（Issue 化済み）
 
 - iNES の PRG-RAM (byte 8) / TV system (byte 9) はダンプで信頼できないことが多い。現状 byte 8 は非 0 のときのみ採用、byte 9 は無視している。
 - iNES で battery ありのときの PRG-NVRAM サイズは不明扱い（慣習的には 8 KiB）。表示ポリシーを決めたい。

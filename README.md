@@ -1,4 +1,4 @@
-# NES Inspector
+# nes-rom-anatomy — NES ROM Anatomy
 
 NES（ファミリーコンピュータ）の `.nes` ROM ファイルを解剖して、
 **ROM ファイル内の位置** と **CPU / PPU から見えるアドレス** の関係、
@@ -71,7 +71,7 @@ test-roms/                   テスト ROM（説明は test-roms/README.md）
 正しさは「期待される内部構造が完全に分かっている ROM」との比較で検証します。
 
 1. **Synthetic ROM**（同梱）: `tools/generate-test-rom.ts` で生成する自作 ROM。ヘッダ・コード・ベクタ・CHR タイルの期待値がすべて既知
-2. **実在 Homebrew ROM**: ライセンス上利用可能なもののみ
+2. **実在 Homebrew ROM**: [pinobatch/nrom-template](https://github.com/pinobatch/nrom-template)（GNU All-Permissive）を固定コミットからビルドして使用（`tools/build-nrom-template.sh`）
 3. **nestest.nes**: CPU テスト ROM (NROM-128)。再配布条件が明示されていないため **同梱せず**、取得方法のみ記載
 
 著作権のある市販 ROM は扱いません。詳細は [test-roms/README.md](test-roms/README.md)。

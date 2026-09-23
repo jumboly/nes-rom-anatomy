@@ -24,7 +24,7 @@ function show(name: string, data: Uint8Array) {
       [h.format, `Mapper ${h.mapper}`, `PRG ${formatSize(h.prgRomSize)}`,
         h.chrRomSize ? `CHR ${formatSize(h.chrRomSize)}` : 'CHR-RAM'].join(' | '));
     app.replaceChildren(summary, renderHeader(h), renderLayout(rom, hexView.jumpTo), hexView.element);
-    document.title = `${name} — NES Inspector`;
+    document.title = `${name} — NES ROM Anatomy`;
   } catch (e) {
     const msg = e instanceof HeaderError ? e.message : `解析中にエラーが発生しました: ${String(e)}`;
     app.replaceChildren(el('p', { class: 'warning' }, `${name}: ${msg}`));

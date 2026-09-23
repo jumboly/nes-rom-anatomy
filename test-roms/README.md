@@ -52,9 +52,26 @@
 | ROM | 入手先 | SHA-256 | 期待値 |
 | --- | --- | --- | --- |
 | `nestest.nes` | https://www.qmtpro.com/~nes/misc/nestest.nes (kevtris) | `f67d55fd6b3cf0bad1cc85f1df0d739c65b53e79cecb7fea8f77ec0eadab0004` | iNES, Mapper 0, PRG 16 KiB, CHR 8 KiB, horizontal |
+| `nrom-template256.nes` | `tools/build-nrom-template.sh` でビルド | `217dab9800641fe6bdd221eb7cc7b3abc988db600530283430cd56bb77cf97ac` | iNES, Mapper 0, PRG 32 KiB, CHR 8 KiB, horizontal |
+| `nrom-template.nes` | 同上 | `b30dce8d2f816d712edbaa3660d01203122d7ef70079ff1158534a5ac5607745` | iNES, Mapper 0, PRG 16 KiB, CHR 8 KiB, horizontal |
 
 nestest は再配布条件が明示されていないため同梱しない。
 
-### 実在 Homebrew NROM-256 ROM（未決定）
+### nrom-template（実在 Homebrew, NROM-256 / NROM-128）
 
-指定候補の "Diamond-Chase" は所在を特定できていない。検討中の候補は [docs/phase1-report.md](../docs/phase1-report.md) 参照。
+[pinobatch/nrom-template](https://github.com/pinobatch/nrom-template)（Damian Yerrick, GNU All-Permissive License）。
+ca65 アセンブリのソースがあり、逆アセンブル結果との比較（Phase 5）に使える。
+
+```sh
+brew install cc65          # ca65 / ld65
+pip install Pillow         # CHR 変換スクリプトが使う
+./tools/build-nrom-template.sh
+```
+
+コミット `d5ce5d8` に固定してビルドする。SHA-256 は cc65 V2.18 での値で、ツールチェーンが異なると変わりうる。
+ソース・`map256.txt`・`nrom-template256.dbg` は `test-roms/external/nrom-template/` に残る。
+
+既知の値（map256.txt より）: RESET = `$8000`, NMI = `$8037`, IRQ = `$803A`。
+コードは `$8000-$82AA` のみで、NROM-256 版でも PRG 後半 16 KiB はほぼ未使用。
+
+当初候補の "Diamond-Chase" は所在を特定できなかったため、これを代替とした。
