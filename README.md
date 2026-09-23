@@ -90,6 +90,7 @@ npm run gen:roms   # test-roms/synthetic-*.nes を再生成
 ./tools/build-nrom-template.sh  # 実在 Homebrew ROM (NROM) を test-roms/external/ にビルド（任意）
 ./tools/build-uorom-template.sh # 実在 Homebrew ROM (UxROM) を test-roms/external/ にビルド（任意）
 ./tools/build-clbr-cnrom.sh     # 実在 ROM (CNROM) を test-roms/external/ にビルド（任意）
+./tools/build-homebrew-games.sh # 有志のフリーゲーム 2 本 (NROM) を test-roms/external/ にビルド（任意）
 ./tools/gen-opcode-golden.sh    # test-roms/da65-opcodes.txt（opcode 表の正解）を da65 で再生成（任意）
 ```
 
@@ -107,7 +108,7 @@ test-roms/                   テスト ROM（説明は test-roms/README.md）
 正しさは「期待される内部構造が完全に分かっている ROM」との比較で検証します。
 
 1. **Synthetic ROM**（同梱）: `tools/generate-test-rom.ts` で生成する自作 ROM。ヘッダ・コード・ベクタ・CHR タイルの期待値がすべて既知
-2. **実在 Homebrew ROM**: [pinobatch/nrom-template](https://github.com/pinobatch/nrom-template) と [pinobatch/snrom-template](https://github.com/pinobatch/snrom-template) の UOROM 版（どちらも GNU All-Permissive）、[clbr/nes](https://github.com/clbr/nes) の CNROM サンプル（CC-BY）を固定コミットからビルドして使用（`tools/build-nrom-template.sh`, `tools/build-uorom-template.sh`, `tools/build-clbr-cnrom.sh`）
+2. **実在 Homebrew ROM**: [pinobatch/nrom-template](https://github.com/pinobatch/nrom-template) と [pinobatch/snrom-template](https://github.com/pinobatch/snrom-template) の UOROM 版（どちらも GNU All-Permissive）、[clbr/nes](https://github.com/clbr/nes) の CNROM サンプル（CC-BY）、実際のゲームとして pinobatch の [Concentration Room](https://github.com/pinobatch/croom-nes) と [Thwaite](https://github.com/pinobatch/thwaite-nes)（どちらも GPLv3 以降）を固定コミットからビルドして使用（`tools/build-*.sh`）
 3. **nestest.nes / nestest.log**: CPU テスト ROM (NROM-128) と実行トレース。再配布条件が明示されていないため **同梱せず**、取得方法のみ記載
 4. **da65 の出力**: 256 個の opcode を cc65 付属の逆アセンブラ da65 に逆アセンブルさせた結果（`test-roms/da65-opcodes.txt`）。opcode 表の正解
 

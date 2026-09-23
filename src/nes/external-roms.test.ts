@@ -50,6 +50,13 @@ const clbrChr = ['tiles.chr', 'tiles2.chr', 'tiles3.chr', 'tiles4.chr', 'tiles5.
   return existsSync(url) ? new Uint8Array(readFileSync(url)) : null;
 });
 
+// 有志のフリーゲーム（pinobatch, GPLv3 以降）。tools/build-homebrew-games.sh でビルドする
+// （croom はタイトル画面のビルド時刻をコミット日時に固定してある。SHA-256 は nrom-template と同じツールチェーンでの値）
+const CROOM_SHA256 = '772e5a34d9c1514cd904e86888e02fbfa865e4ceb186b6d62250b6c457cba417';
+const THWAITE_SHA256 = 'ee51cd9562f28195ba015d9857c6c4fc9bf67cdfb213e95f655e586b92195173';
+const croom = loadExternal('croom.nes', CROOM_SHA256);
+const thwaite = loadExternal('thwaite.nes', THWAITE_SHA256);
+
 const NESTEST_SHA256 = 'f67d55fd6b3cf0bad1cc85f1df0d739c65b53e79cecb7fea8f77ec0eadab0004';
 const nestest = loadExternal('nestest.nes', NESTEST_SHA256);
 // nestest.log は nestest.nes を自動モード ($C000 から) で実行したときの、命令ごとの CPU トレース
@@ -402,5 +409,67 @@ describe.skipIf(!clbrCnrom)('clbr-cnrom.nes (CNROM, clbr/nes)', () => {
       '$90A9 からは 0, 1, 2… と並んだテーブル。bank 番号と同じ値を持つ番地に書くことで、bus conflict（書く値と ROM の値の衝突）を避ける定番の形。',
     ]);
     expect(readCpuBytes(rom, 0x90a9, 5)).toEqual([0, 1, 2, 3, 4]);
+  });
+});
+
+/**
+ * 実在のゲーム 2 本（どちらも NROM）。期待値は map.txt（nmis の番地）とソース（reset / nmi / irq の proc）から手で読んだもの。
+ * croom はビルド時に tools/shuffle.py -r で .shuffle ブロック内の行を逆順にしているので、期待値もソースの各ブロックを逆順にしてある。
+ */
+describe.skipIf(!croom)('croom.nes (Concentration Room, NROM-128, pinobatch)', () => {
+  // skipIf でもテスト収集のため describe の本体は実行されるので、ROM が無い環境（CI）ではここで抜ける
+  if (!croom) return;
+  const rom = parseRom(croom);
+
+  it('is an iNES NROM-128 ROM with 8 KiB CHR, vertical mirroring', () => {
+    expect(rom.header).toMatchObject({ format: 'iNES', mapper: 0, prgRomSize: 16 * 1024, chrRomSize: 8 * 1024, mirroring: 'vertical' });
+    expect(rom.warnings).toEqual([]);
+  });
+
+  it('has NMI $CA4F (inc nmis / rti), RESET $CA0A, IRQ $CA52 (rti), seen through the $C000 mirror', () => {
+    const v = readVectors(rom)!;
+    expect(v.entries.map((e) => e.target!.cpu)).toEqual([0xca4f, 0xca0a, 0xca52]);
+    expect(v.entries[1]!.target!.hit!.fileOffset).toBe(0x10 + 0x0a0a);
+    const m = prgMapping(rom)!;
+    // map.txt: nmis = $000014
+    expect(disassemble(rom, m, 0xca4f, 3).lines.map((l) => l.text)).toEqual(['INC $14', 'RTI', 'RTI']);
+  });
+
+  // litemain.s の reset。.shuffle ブロック（3 行 / 2 行 / 4 行）がそれぞれ逆順になっている
+  it('disassembles the reset handler with each .shuffle block reversed', () => {
+    const lines = disassemble(rom, prgMapping(rom)!, 0xca0a, 14, vectorLabels(readVectors(rom))).lines;
+    expect(lines.map((l) => l.text)).toEqual([
+      'SEI', 'LDX #$00',
+      'LDA #$40', 'STX $2001', 'STX $2000',
+      'STX $4010', 'STA $4017',
+      'DEX', 'CLD', 'BIT $4015', 'BIT $2002',
+      'TXS', 'BIT $2002', 'BPL $CA24',
+    ]);
+    expect(lines[0]!.labels).toEqual(['RESET']);
+  });
+});
+
+describe.skipIf(!thwaite)('thwaite.nes (Thwaite, NROM-256, pinobatch)', () => {
+  // skipIf でもテスト収集のため describe の本体は実行されるので、ROM が無い環境（CI）ではここで抜ける
+  if (!thwaite) return;
+  const rom = parseRom(thwaite);
+
+  it('is an iNES NROM-256 ROM with 8 KiB CHR, vertical mirroring', () => {
+    expect(rom.header).toMatchObject({ format: 'iNES', mapper: 0, prgRomSize: 32 * 1024, chrRomSize: 8 * 1024, mirroring: 'vertical' });
+  });
+
+  // main.s: .addr nmi, reset, irq。CODE の先頭に irq (rti) → nmi (inc nmis / rti) → reset の順で並ぶ
+  it('has IRQ $8000, NMI $8001, RESET $8004 at the very start of PRG-ROM', () => {
+    const v = readVectors(rom)!;
+    expect(v.entries.map((e) => e.target!.cpu)).toEqual([0x8001, 0x8004, 0x8000]);
+    const lines = disassemble(rom, prgMapping(rom)!, 0x8000, 18, vectorLabels(v)).lines;
+    // map.txt: nmis = $000030
+    expect(lines.map((l) => l.text)).toEqual([
+      'RTI', 'INC $30', 'RTI',
+      'SEI', 'LDX #$00', 'STX $2000', 'STX $2001', 'LDA #$40', 'STA $4017', 'STX $4010',
+      'BIT $2002', 'BIT $4015', 'CLD', 'DEX', 'TXS', 'BIT $2002', 'BPL $801E', 'LDX #$00',
+    ]);
+    expect(lines.map((l) => l.labels).filter((x) => x.length)).toEqual([['IRQ'], ['NMI'], ['RESET']]);
+    expect(lines[5]!.notes).toEqual(['PPUCTRL']);
   });
 });

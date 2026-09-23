@@ -95,6 +95,8 @@ da65（cc65 付属の逆アセンブラ, `--cpu 6502x`）に逆アセンブル�
 | `nrom-template256.nes` | `tools/build-nrom-template.sh` でビルド | `217dab9800641fe6bdd221eb7cc7b3abc988db600530283430cd56bb77cf97ac` | iNES, Mapper 0, PRG 32 KiB, CHR 8 KiB, horizontal |
 | `nrom-template.nes` | 同上 | `b30dce8d2f816d712edbaa3660d01203122d7ef70079ff1158534a5ac5607745` | iNES, Mapper 0, PRG 16 KiB, CHR 8 KiB, horizontal |
 | `uorom-template.nes` | `tools/build-uorom-template.sh` でビルド | `496be489d926ef66ef820ae18a617b4cb3d8edf09dfd1e46e8b8f0dad6c235fd` | iNES, Mapper 2 (UOROM), PRG 256 KiB (16 bank), CHR-RAM, vertical |
+| `croom.nes` | `tools/build-homebrew-games.sh` でビルド | `772e5a34d9c1514cd904e86888e02fbfa865e4ceb186b6d62250b6c457cba417` | iNES, Mapper 0, PRG 16 KiB, CHR 8 KiB, vertical（Concentration Room） |
+| `thwaite.nes` | 同上 | `ee51cd9562f28195ba015d9857c6c4fc9bf67cdfb213e95f655e586b92195173` | iNES, Mapper 0, PRG 32 KiB, CHR 8 KiB, vertical（Thwaite） |
 | `clbr-cnrom.nes` | `tools/build-clbr-cnrom.sh` でビルド | `d9d0dd3040deff791857bbb0fa67765ac545b2665e05821d9fed94374e901fb4` | iNES, Mapper 3, PRG 32 KiB, CHR 40 KiB (5 bank), vertical |
 
 nestest は再配布条件が明示されていないため同梱しない。
@@ -167,3 +169,29 @@ CHR は 5 bank（40 KiB）で、純正 CNROM 基板の上限（2 bit = 4 bank）
 - ベクタ: RESET = `$8000`（crt0.s の `start`: `SEI / LDX #$FF / TXS / INX / STX $2001 / STX $4010 / STX $2000 …`）
 - `bankswitch()` (`$826B`): main.c の `(u8) arr[to] = to` を cc65 が `JSR pusha / LDY #$00 / LDA ($2C),Y / TAX / LDA ($2C),Y / STA $90A9,X / JMP incsp1` にしたもの。`$90A9` は `arr[] = {0, 1, 2, 3, 4}` で、bus conflict を避ける表
 - CHR bank n = ソースの `tiles.chr`（bank 0）, `tiles2.chr` 〜 `tiles5.chr`（bank 1〜4）。`src/nes/external-roms.test.ts` は、各 bank を入れた PPU $0000-$1FFF がこれらのファイルと 1 byte ずつ一致することを確かめる
+
+### croom / thwaite（実在のゲーム, NROM）
+
+pinobatch（Damian Yerrick）の有志フリーゲーム。どちらも GPLv3 以降で、nrom-template と同じツールチェーンでビルドする。
+テンプレートやテスト ROM ではない、完成したゲームの中身（CHR・コード）を見るために入れた。
+
+- [Concentration Room](https://github.com/pinobatch/croom-nes)（`croom.nes`, コミット `ed19c3c`）: 神経衰弱。NROM-128
+- [Thwaite](https://github.com/pinobatch/thwaite-nes)（`thwaite.nes`, コミット `00e3674`）: ミサイル防衛。NROM-256
+
+```sh
+./tools/build-homebrew-games.sh   # cc65, python3 + Pillow, C コンパイラ
+```
+
+ビルドを再現可能にするため、スクリプトで 2 か所に手を入れている:
+
+- croom のタイトル画面の "Build time:" は ca65 の `.time`（ビルドした時刻）で、ビルドのたびに ROM が 2 byte 変わる。
+  ca65 (V2.18) は `SOURCE_DATE_EPOCH` を見ないため、`src/litetitle.s` の `.time` をコミット日時に置き換えてからビルドする
+- thwaite の makefile は付属ツール `tools/dte` を `gcc -static` でビルドするが、macOS では静的リンクできない。先に `-static` なしでビルドしておく
+
+croom は `tools/shuffle.py -r` でソースの `.shuffle` ブロック内の行を逆順にしてからアセンブルされる（作者の、順序に依存するバグを見つけるための仕組み）。
+そのため逆アセンブル結果はソースの記述順と一部逆になり、`src/nes/external-roms.test.ts` の期待値もブロックごとに逆順にしてある。
+
+既知の値（map.txt・ソースより）:
+
+- croom: NMI = `$CA4F`（`INC nmis` = `$14` / `RTI`）, RESET = `$CA0A`, IRQ = `$CA52`（`RTI`）。NROM-128 なので `$8000-` にもミラーで見える
+- thwaite: IRQ = `$8000`（`RTI`）, NMI = `$8001`（`INC nmis` = `$30` / `RTI`）, RESET = `$8004`。PRG の先頭に `irq` → `nmi` → `reset` の順で並ぶ
