@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { decodePatternTable, locateTile } from './chr.ts';
 import { prgMapping, prgToCpu, readCpu } from './cpu-map.ts';
 import { parseRom, type NesRom } from './rom.ts';
+import { readVectors } from './vectors.ts';
 
 /** CPU アドレスから見える byte 列。値は ROM ファイルの位置ではなく CPU 側の既知の値（map ファイル, nestest.log）と照合する */
 function readCpuBytes(rom: NesRom, cpu: number, n: number) {
@@ -73,6 +74,17 @@ describe.skipIf(!nestest)('nestest.nes (NROM-128)', () => {
     const v = readCpuBytes(rom, 0xfffa, 6);
     expect([word(v, 0), word(v, 2), word(v, 4)]).toEqual([0xc5af, 0xc004, 0xc5f4]);
   });
+
+  // NMI ハンドラは PHA / TXA / PHA / LDA $2002 で始まり、IRQ は RTI だけ（nestest.nes を逆アセンブルして確認した値）
+  it('resolves the vector targets through the $C000 mirror', () => {
+    const [nmi, reset, irq] = readVectors(rom)!.entries;
+    expect(nmi!.target!.hit!.fileOffset).toBe(0x05bf);
+    expect(nmi!.target!.preview.slice(0, 6)).toEqual([0x48, 0x8a, 0x48, 0xad, 0x02, 0x20]);
+    expect(nmi!.target!.aliases).toEqual([0x85af, 0xc5af]);
+    expect(reset!.target!.hit!.fileOffset).toBe(0x0014);
+    expect(irq!.target!.hit!.fileOffset).toBe(0x0604);
+    expect(irq!.target!.preview[0]).toBe(0x40);
+  });
 });
 
 const layoutOf = (data: Uint8Array) =>
@@ -96,6 +108,15 @@ describe.skipIf(!nromTemplate256)('nrom-template256.nes (NROM-256, pinobatch)', 
     const v = readCpuBytes(rom, 0xfffa, 6);
     expect([word(v, 0), word(v, 2), word(v, 4)]).toEqual([0x8037, 0x8000, 0x803a]);
     expect(readCpu(rom, prgMapping(rom)!, 0xfffa)!.fileOffset).toBe(0x800a);
+  });
+
+  // src/init.s: reset_handler は sei / ldx #$00、src/main.s: irq_handler は rti だけ
+  it('finds reset_handler (SEI) and irq_handler (RTI) at the vector targets', () => {
+    const [, reset, irq] = readVectors(parseRom(nromTemplate256!))!.entries;
+    expect(reset!.target!.hit!.fileOffset).toBe(0x0010);
+    expect(reset!.target!.preview.slice(0, 3)).toEqual([0x78, 0xa2, 0x00]);
+    expect(irq!.target!.preview[0]).toBe(0x40);
+    expect(irq!.notes.join()).toContain('RTI');
   });
 
   it('has the NROM-256 file layout', () => {
@@ -122,6 +143,12 @@ describe.skipIf(!nromTemplate128)('nrom-template.nes (NROM-128, pinobatch)', () 
     const v = readCpuBytes(rom, 0xfffa, 6);
     expect([word(v, 0), word(v, 2), word(v, 4)]).toEqual([0xc037, 0xc000, 0xc03a]);
     expect(readCpuBytes(rom, 0x8000, 16)).toEqual(readCpuBytes(rom, 0xc000, 16));
+  });
+
+  it('resolves reset_handler $C000 to file $0010 (PRG +$0000)', () => {
+    const [, reset] = readVectors(parseRom(nromTemplate128!))!.entries;
+    expect(reset!.target!.hit).toMatchObject({ prgOffset: 0, fileOffset: 0x0010, value: 0x78 });
+    expect(reset!.target!.aliases).toEqual([0x8000, 0xc000]);
   });
 });
 

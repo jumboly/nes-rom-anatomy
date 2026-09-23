@@ -1,5 +1,6 @@
 import { prgMapping, prgToCpu } from '../nes/cpu-map.ts';
 import { locateOffset, type NesRom } from '../nes/rom.ts';
+import { readVectors, vectorLabelsAt } from '../nes/vectors.ts';
 import { el, hex } from './format.ts';
 import { REGION_LABEL } from './regions.ts';
 
@@ -30,6 +31,7 @@ export function createHexView(rom: NesRom, data: Uint8Array): HexView {
 
   let selected = -1;
   const mapping = prgMapping(rom);
+  const vectors = readVectors(rom);
 
   /** file offset → CPU から見えるアドレス。ファイルと CPU の両方の視点を同じ場所で見せるため */
   function cpuText(kind: string, relative: number): string {
@@ -52,7 +54,10 @@ export function createHexView(rom: NesRom, data: Uint8Array): HexView {
       ? `${REGION_LABEL[hit.region.kind]} + $${hex(hit.relative, 4)}`
       : '（どの領域にも属さない）';
     const cpu = hit ? cpuText(hit.region.kind, hit.relative) : '';
-    return `File $${hex(offset, 6)} = $${hex(data[offset]!, 2)}  →  ${where}${cpu}`;
+    // ベクタの byte や飛び先は「ただの PRG の 1 byte」に見えてしまうため、役割を添える
+    const labels = vectors ? vectorLabelsAt(vectors, offset) : [];
+    const role = labels.length ? `  [${labels.join(', ')}]` : '';
+    return `File $${hex(offset, 6)} = $${hex(data[offset]!, 2)}  →  ${where}${cpu}${role}`;
   }
 
   function render() {

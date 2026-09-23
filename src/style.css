@@ -133,3 +133,21 @@ table { border-collapse: collapse; }
 /* 狭い画面で説明列が潰れて行が極端に縦長になるのを避け、横スクロールさせる */
 .cpu-areas { min-width: 900px; }
 .cpu-areas .desc { min-width: 260px; }
+
+/* Vectors */
+.vector-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.vector-group { border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; text-align: center; }
+.vector-group-name { font-size: 12px; font-weight: 600; }
+.vector-group-bytes { display: flex; gap: 4px; }
+.vector-group-result { font-size: 13px; color: var(--prg); }
+.vector-byte { display: flex; flex-direction: column; align-items: center; padding: 2px 8px; font-size: 14px; }
+.vector-byte small { color: var(--muted); font-size: 10px; }
+.vector-byte:hover:not(:disabled) { border-color: var(--prg); }
+.vector-entries { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.vector-entry { border-top: 1px solid var(--border); padding-top: 4px; min-width: 0; }
+.vector-entry h3 { color: var(--fg); margin-top: 4px; }
+.vector-entry .kv th { white-space: nowrap; vertical-align: top; }
+.vector-notes { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.vector-basis { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 12px; border: 1px solid var(--prg); color: var(--prg); }
+/* 推定は「確定ではない」ことを色でも区別する */
+.vector-basis-assumed-bank { border-color: var(--trainer); color: var(--trainer); }

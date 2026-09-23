@@ -7,6 +7,7 @@ import { el, formatSize } from './ui/format.ts';
 import { renderHeader } from './ui/header-view.ts';
 import { createHexView } from './ui/hex-view.ts';
 import { renderLayout } from './ui/layout-view.ts';
+import { renderVectorView } from './ui/vector-view.ts';
 
 // Vite にバンドルさせることで、サーバー無しの静的ホスティングでもサンプルを開けるようにする
 const SAMPLE_URLS = import.meta.glob('../test-roms/synthetic-*.nes', {
@@ -26,7 +27,7 @@ function show(name: string, data: Uint8Array) {
       el('strong', {}, name), ' ',
       [h.format, `Mapper ${h.mapper}${mapperName(h.mapper) ? ` (${mapperName(h.mapper)})` : ''}`, `PRG ${formatSize(h.prgRomSize)}`,
         h.chrRomSize ? `CHR ${formatSize(h.chrRomSize)}` : 'CHR-RAM'].join(' | '));
-    app.replaceChildren(summary, renderHeader(h), renderLayout(rom, hexView.jumpTo), renderCpuView(rom, hexView.jumpTo), renderChrView(rom, hexView.jumpTo), hexView.element);
+    app.replaceChildren(summary, renderHeader(h), renderLayout(rom, hexView.jumpTo), renderCpuView(rom, hexView.jumpTo), renderVectorView(rom, hexView.jumpTo), renderChrView(rom, hexView.jumpTo), hexView.element);
     document.title = `${name} — NES ROM Anatomy`;
   } catch (e) {
     const msg = e instanceof HeaderError ? e.message : `解析中にエラーが発生しました: ${String(e)}`;
