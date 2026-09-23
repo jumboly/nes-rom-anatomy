@@ -34,9 +34,11 @@
 
 ## 気付いた課題（Issue 化済み）
 
-- iNES の PRG-RAM (byte 8) / TV system (byte 9) はダンプで信頼できないことが多い。現状 byte 8 は非 0 のときのみ採用、byte 9 は無視している。
-- iNES で battery ありのときの PRG-NVRAM サイズは不明扱い（慣習的には 8 KiB）。表示ポリシーを決めたい。
-- NES 2.0 の Vs. System / Extended console type の詳細 (byte 13) は未表示。
-- ROM データベース（NES 2.0 XML DB 等）と照合してヘッダの誤りを指摘する機能は将来課題。
-- Hex Viewer は 1 画面 24 行固定。ビュー間連携 (Phase 6) で選択範囲のハイライトが必要になる。
-- レイアウト帯は最小幅つきの近似比率。大きい ROM（数 MiB）で見え方を確認する必要がある。
+- #1 iNES 1.0 の PRG-RAM (byte 8) / TV system (byte 9) の扱い
+- #2 iNES で battery ありの場合の PRG-NVRAM サイズ表示
+- #3 NES 2.0 byte 13（Vs. System 種別 / Extended console type）の詳細表示
+- #4 ROM データベースとの照合によるヘッダ誤りの検出
+- #5 Hex Viewer: 範囲選択のハイライトと表示行数の可変化
+- #6 ROM Layout 帯表示を大容量 ROM で確認する
+- #7 GitHub Actions で unit test / typecheck を実行する
+- #8 nrom-template の SHA-256 が cc65 のバージョンに依存する
