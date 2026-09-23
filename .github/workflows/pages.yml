@@ -1,0 +1,49 @@
+# main への push ごとに typecheck / unit test を通してから GitHub Pages へデプロイする。
+# テストに落ちた版を公開しないよう、build ジョブの中でテストを先に実行する。
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 連続 push で古いデプロイが後から完了して新しい版を上書きしないよう、実行中のものは待たせる
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # test-roms/external/（第三者 ROM）は git に無いため、それを使うテストは自動でスキップされる
+      - run: npm test
+      - run: npx vite build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    # PR ではテストとビルドの確認だけ行い、公開はしない
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
