@@ -60,10 +60,10 @@ Chromium（幅 1200px ライト / 390px ダーク）で以下 22 項目を確認
 | Synthetic NROM-128 | 選択欄が出ない・ミラーの図が従来どおり（回帰確認） |
 | Synthetic UxROM（390px ダーク） | 図・選択欄の表示。横のはみ出しは ROM Layout の表だけ（既存の #17） |
 
-## 気付いた課題（Issue 化予定）
+## 気付いた課題（Issue 化済み）
 
-- 固定 bank のコードが `$8000-$FFFF` に書く値（`LDA #$03` → `STA table,Y` など）を静的にたどり、その後の `JSR $8000` の飛び先の bank を推定する。今は利用者が選ぶだけ
-- Hex Viewer で、bank 切り替えのある ROM の bank 境界と bank 番号を行に表示する
-- bank 数が多い ROM（UxROM 互換の 1〜4 MiB = 64〜256 bank）での図・選択欄の見え方を確認する。32 bank を超えると図の bank ラベルは省略、「bank ごとの値」は出さない
-- uorom-template の SHA-256 も cc65 のバージョンに依存する（#8 と同じ問題。#8 にコメントする）
-- 390px 幅で ROM Layout の表がはみ出す（既存の #17）
+- #29 固定 bank のコードが `$8000-$FFFF` に書く値（`LDA #$03` → `STA table,Y` など）を静的にたどり、その後の `JSR $8000` の飛び先の bank を推定する。今は利用者が選ぶだけ
+- #30 Hex Viewer で、bank 切り替えのある ROM の bank 境界と bank 番号を行に表示する
+- #31 bank 数が多い ROM（UxROM 互換の 1〜4 MiB = 64〜256 bank）での図・選択欄の見え方を確認する。23 bank 以上で図の bank ラベルは省略（1 bank の高さが 14px 未満）、32 bank を超えると「bank ごとの値」は出さない
+- uorom-template の SHA-256 も cc65 のバージョンに依存する（#8 と同じ問題。#8 にコメント済み）
+- 390px 幅で ROM Layout の表がはみ出す（既存の #17 にコメント済み）
